@@ -1,4 +1,10 @@
 import socket
+import sys
+import os
+
+# --- Add this block at the very top ---
+# It lets Python find packet.py from the repo root
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import threading
 import time
 import json
