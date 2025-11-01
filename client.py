@@ -132,6 +132,9 @@ class Client():
         # recieves periodic snapshots from the server and updates the game UI
         pass
 
+    def log_msg(self):
+        # logs all messages in a csv file for later
+        pass
 
 if __name__ == "__main__":
     player= Client()
