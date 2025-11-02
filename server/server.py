@@ -10,12 +10,12 @@ import time
 import json
 import pygame
 from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
-from state import State
-from logging_utils import log_message
+from .state import State
+from .logging_utils import log_message
 
 SERVER_IP = "127.0.0.1"
 PORT = 9999
-TICK_RATE = 15  # updates per second
+TICK_RATE = 4  # updates per second
 
 class Server:
     def __init__(self):
@@ -103,6 +103,10 @@ class Server:
         )
         for addr in self.clients.values():
             self.sock.sendto(packet_bytes, addr)
+            # DEBUG: Print what server is sending
+            print("[SERVER] Sending snapshot")
+            #print(json.dumps(json.loads(state_json), indent=2)[:500])  # Print first 500 chars
+            
 
     def draw(self):
         """Optional: render server-side visualization"""

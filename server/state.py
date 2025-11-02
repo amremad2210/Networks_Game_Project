@@ -1,7 +1,7 @@
 import json
 import random
-from player import Player
-from logging_utils import log_message
+from .player import Player
+from .logging_utils import log_message
 
 class State:
     DIRECTION_MAP = {
@@ -12,15 +12,26 @@ class State:
     }
 
     def __init__(self):
-        self.dimensions = [30, 40]
+        self.dimensions = [20, 20]
         self.food = self.get_random_position()
         self.players = {}
 
     def to_json(self):
+        # Convert players dict from {username: player_obj} to {player_id: player_dict}
+        players_with_ids = {}
+        for player_id, (username, player_obj) in enumerate(self.players.items()):
+            player_dict = player_obj.to_dict()
+            player_dict["player_id"] = player_id  # Add the player_id field
+            player_dict["segments"] = [
+                {"x": seg[1], "y": seg[0]} for seg in player_dict.get("segments", [])
+            ]
+            players_with_ids[str(player_id)] = player_dict  # Use player_id as key
+            
+        
         return json.dumps({
             "dimensions": self.dimensions,
-            "food": self.food,
-            "players": {u: p.to_dict() for u, p in self.players.items()}
+            "food": {"x": self.food[1], "y": self.food[0]}, #changed to match UI format
+            "players": players_with_ids  # ← Now keys are "0", "1", "2", etc.
         })
 
     def get_random_position(self, buffer=0):
@@ -31,13 +42,13 @@ class State:
         start_pos = [self.get_random_position(buffer=3)]
         direction = random.choice(list(State.DIRECTION_MAP.values()))
         colour = random.randint(1, 7)
-        self.players[username] = Player(start_pos, direction, colour)
+        self.players[username] = Player(start_pos, direction, colour, username)
         log_message("INFO", "State", f"Added {username}")
 
     def remove_player(self, username):
         if username in self.players:
-            del self.players[username]
-            log_message("INFO", "State", f"Removed {username}")
+            self.players[username].kill_player()
+            log_message("INFO", "State", f"{username} is dead")
 
     def update_player_direction(self, username, key):
         if username in self.players and key in State.DIRECTION_MAP:
@@ -52,6 +63,9 @@ class State:
         eater = None
 
         for username, player in self.players.items():
+            if not player.alive:
+                continue
+
             player.add_new_head()
             if not player.check_alive(occupied, self.dimensions):
                 dead.append(username)
