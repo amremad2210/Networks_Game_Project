@@ -23,7 +23,7 @@ class Client():
         # Game state for snapshots
         self.game_state = {
             'players': {},
-            'food': [],
+            'food': {},
             'grid_size': 20,
             'game_over': False,
             'winner': None
@@ -44,7 +44,7 @@ class Client():
             'timestamp', 'client_id', 'msg_type', 'seq_num', 'snapshot_id',
             'server_timestamp', 'payload_size', 'direction'
         ])
-
+    
     def log_msg(self, packet, direction=None):
         """Log all messages to CSV file"""
         if self.csv_writer and packet:
@@ -101,11 +101,20 @@ class Client():
         """Send EVENT message to server"""
         if not self.connected:
             return False
-
+        # Map arrow key directions to server's expected keys
+        direction_map = {
+            "UP": "w",
+            "DOWN": "s",
+            "LEFT": "a",
+            "RIGHT": "d"
+        }
+        
+        server_direction = direction_map.get(direction.upper(), "d")
+        
         move_data = {
             # server expects 'username' in current server implementation
-+           'username': self.username,
-            'direction': direction.upper(),
+            'username': self.username,
+            'direction': server_direction,
             'timestamp': int(time.time() * 1000)
         }
 
@@ -121,7 +130,7 @@ class Client():
 
         # Log EVENT message
         event_packet = Packet(MSG_EVENT, 0, self.client_seq_num, timestamp, payload_len, payload_data)
-        self.log_msg(event_packet, direction.upper())
+        self.log_msg(event_packet, "SENT")
 
         self.client_seq_num += 1
         return True
@@ -154,7 +163,7 @@ class Client():
               f"({len(payload)} keys, timestamp={server_timestamp})")
             
             # Log SNAPSHOT message
-            self.log_msg(packet)
+            self.log_msg(packet, "RECEIVED")
             
         except json.JSONDecodeError:
             print("[Client] Failed to decode SNAPSHOT payload (invalid JSON).")
@@ -203,7 +212,7 @@ class Client():
                     _ = packet.payload.decode('utf-8') if packet.payload_len else ""    # Process ACK payload if needed
                 except Exception:
                     pass
-                self.log_msg(packet)
+                self.log_msg(packet, "RECIEVED")
 
             elif packet.msg_type == MSG_END:
                 #server indicated game over or disconnection
@@ -220,10 +229,10 @@ class Client():
                     self.game_state['game_over'] = True
 
                 print("[Client] Received END message from server. Game over.")
-                self.log_msg(packet)
+                self.log_msg(packet, "RECEIVED")
             else:
                 print(f"[Client] Received unknown packet type: {packet.msg_type}")
-                self.log_msg(packet)
+                self.log_msg(packet, "RECEIVED")
         
         print("[Client] Receive loop terminated.")
         pass

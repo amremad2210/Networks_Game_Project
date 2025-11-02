@@ -1,18 +1,37 @@
 class Player:
-    def __init__(self, segments, direction, colour):
+    def __init__(self, segments, direction, colour, username ="Unknown Player"):
         self.segments = segments
         self.direction = direction
         self.score = 0
         self.colour = colour
+        self.username = username
+        self.alive = True  
 
-    def to_dict(self):
+    def to_dict(self): #changed to match UI format
         return {
-            "segments": self.segments,
-            "direction": self.direction,
+            "username": self.username,
+            "direction": self.direction_to_str(),
+            "colour": self.colour,
             "score": self.score,
-            "colour": self.colour
+            "segments": self.segments,
+            "alive": self.alive  # Added for UI
         }
 
+    def kill_player(self):
+        """Mark player as dead and clear their snake body"""
+        self.alive = False
+        self.segments = []
+
+    def direction_to_str(self):
+        if self.direction == [0, -1]:
+            return "LEFT"
+        elif self.direction == [0, 1]:
+            return "RIGHT"
+        elif self.direction == [-1, 0]:
+            return "UP"
+        elif self.direction == [1, 0]:
+            return "DOWN"
+        
     def get_head(self):
         return self.segments[0]
 

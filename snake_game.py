@@ -5,7 +5,7 @@ import time
 import random
 from enum import Enum
 from client import Client
-
+#from login_class import LoginScreen
 # screen dimensions
 WIN_WIDTH = 1000
 WIN_HEIGHT= 700
@@ -264,10 +264,12 @@ class ScoreBoard:
         
         for player_id, player_data in sorted(players.items()):
             # Get player info
+            print(f"[DEBUG] Player {player_id}: {player_data}")
+        
             username = player_data.get("username", f"Player {player_id}")
             score = player_data.get("score", 0)
             alive = player_data.get("alive", True)
-            player_id = int(player_id)
+            pid = int(player_id)
             # Format status string
             status = "ALIVE" if alive else "DEAD"
             
@@ -276,7 +278,7 @@ class ScoreBoard:
             player_text = f"{username}: {score} ({status})"
             
             # get player's color
-            color = PLAYERS_COLOR[player_id % len(PLAYERS_COLOR)]
+            color = PLAYERS_COLOR[pid % len(PLAYERS_COLOR)]
         
             # Render text as surface (True = anti-aliased, COLOR_PLAYERS[...] = color)
             text_surface = self.font_player.render(player_text, True, color)
@@ -332,11 +334,9 @@ class GameUI:
         self.food_renderer = FoodRender(self.screen, self.grid)
         self.scoreboard = ScoreBoard(self.screen)
         
-        # Mock game state for testing
-        self.mock_game = MockGameState()
         
-        # Current game state (updated from server or mock)
-        self.game_state = self.mock_game.get_state()
+        # Current game state (updated from server)
+        self.game_state = self.client.game_state
         
         # Current player's direction (set by keyboard input)
         self.player_direction = "RIGHT"
@@ -359,35 +359,22 @@ class GameUI:
                 # Arrow keys for movement
                 if event.key == pygame.K_UP:
                     self.player_direction = "UP"
-                    # If using mock game state, update direction directly
-                    if self.client is None:
-                        self.mock_game.set_direction("UP")
-                    else:
-                        # Send to server
+                    if self.client is not None:
                         self.send_move_to_server()
                 
                 elif event.key == pygame.K_DOWN:
                     self.player_direction = "DOWN"
-                    if self.client is None:
-                        self.mock_game.set_direction("DOWN")
-                    else:
-                        # Send to server
+                    if self.client is not None:
                         self.send_move_to_server()
                 
                 elif event.key == pygame.K_LEFT:
                     self.player_direction = "LEFT"
-                    if self.client is None:
-                        self.mock_game.set_direction("LEFT")
-                    else:
-                        # Send to server
+                    if self.client is not None:
                         self.send_move_to_server()
                 
                 elif event.key == pygame.K_RIGHT:
                     self.player_direction = "RIGHT"
-                    if self.client is None:
-                        self.mock_game.set_direction("RIGHT")
-                    else:
-                        # Send to server
+                    if self.client is not None:
                         self.send_move_to_server()
                 
                 # Quit game with Q key
@@ -404,17 +391,12 @@ class GameUI:
     
     def update(self):
         """
-        Update game state (simulate or received from server).
+        Update game state (received from server).
         Called once per frame before rendering.
         """
-        # For testing without server: use mock game to update state
-        if self.client is None:
-            self.mock_game.update()
-            self.game_state = self.mock_game.get_state()
-        else:
-            # In production: get state from client's latest snapshot
-            if self.client.latest_game_state:
-                self.game_state = self.client.latest_game_state
+        if self.client is not None:
+            if self.client.game_state:
+                self.game_state = self.client.game_state
 
     def render(self):
         """
@@ -485,226 +467,3 @@ class GameUI:
     def close(self):
         """Stop the game loop."""
         self.running = False
-
-#test class
-class MockGameState:
-    """
-    Simulates server responses for UI testing without real server.
-    Now supports user input control for player 0.
-    """
-    
-    def __init__(self):
-        """Initialize mock game state with starting positions."""
-        
-        # Snake starting position (center of grid)
-        start_x = GRID_WIDTH // 2
-        start_y = GRID_HEIGHT // 2
-        
-        # Initial game state structure (follows official format)
-        self.game_state = {
-            "snapshot_id": 0,  # Incremented each update
-            "timestamp": int(time.time() * 1000),  # Milliseconds since epoch
-            "grid_size": 20,
-            "game_over": False,
-            "winner": None,
-            "players": {
-                # Player 0 is the human-controlled player
-                "0": {
-                    "player_id": 0,
-                    "username": "You",
-                    "x": start_x,
-                    "y": start_y,
-                    "direction": "RIGHT",
-                    "score": 0,
-                    "alive": True,
-                    "segments": [
-                        {"x": start_x, "y": start_y},
-                        {"x": start_x - 1, "y": start_y},
-                        {"x": start_x - 2, "y": start_y},
-                    ]
-                }
-            },
-            "food": {"x": 15, "y": 10}
-        }
-        
-        # Counter for controlling update frequency
-        self.tick_counter = 0
-        
-        # Movement speed (lower = faster)
-        self.move_every_n_ticks = 8
-        
-        # Current input direction (set by user)
-        self.pending_direction = "RIGHT"
-    
-    def get_state(self):
-        """Return current game state (follows official format)."""
-        return self.game_state
-    
-    def set_direction(self, direction):
-        """
-        Set the direction for player 0 (called from UI when user presses key).
-        
-        Args:
-            direction: "UP", "DOWN", "LEFT", "RIGHT"
-        """
-        # Validate direction
-        if direction not in ["UP", "DOWN", "LEFT", "RIGHT"]:
-            return
-        
-        # Get current direction
-        current = self.game_state["players"]["0"]["direction"]
-        
-        # Prevent 180-degree turns (snake can't go backwards)
-        opposite_dirs = {
-            "UP": "DOWN",
-            "DOWN": "UP",
-            "LEFT": "RIGHT",
-            "RIGHT": "LEFT"
-        }
-        
-        if direction != opposite_dirs.get(current):
-            # Valid direction change
-            self.pending_direction = direction
-    
-    def update(self):
-        """
-        Simulate game updates - move snake, check collisions, etc.
-        Called each frame to generate new state.
-        """
-        # Increment tick counter
-        self.tick_counter += 1
-        
-        # Only move snake every N ticks (controls game speed)
-        if self.tick_counter % self.move_every_n_ticks != 0:
-            return
-        
-        # Don't update if game is over
-        if self.game_state["game_over"]:
-            return
-        
-        # Get player 0 (the human player)
-        player = self.game_state["players"]["0"]
-        
-        # Check if player is still alive
-        if not player["alive"]:
-            self.game_state["game_over"] = True
-            return
-        
-        # Update direction (apply pending input)
-        player["direction"] = self.pending_direction
-        
-        # Calculate next head position based on direction
-        x = player["x"]
-        y = player["y"]
-        direction = player["direction"]
-        
-        # Move head based on direction
-        if direction == "RIGHT":
-            x += 1
-        elif direction == "LEFT":
-            x -= 1
-        elif direction == "UP":
-            y -= 1
-        elif direction == "DOWN":
-            y += 1
-        
-        # Check collision with walls
-        if x < 0 or x >= GRID_WIDTH or y < 0 or y >= GRID_HEIGHT:
-            player["alive"] = False
-            self.game_state["game_over"] = True
-            return
-        
-        # Check collision with self
-        for segment in player["segments"]:
-            if segment["x"] == x and segment["y"] == y:
-                player["alive"] = False
-                self.game_state["game_over"] = True
-                return
-        
-        # Check if snake ate food
-        ate_food = (x == self.game_state["food"]["x"] and 
-                   y == self.game_state["food"]["y"])
-        
-        if ate_food:
-            # Increase score
-            player["score"] += 10
-            
-            # Spawn new food at random location (not on snake)
-            self.spawn_food()
-        
-        # Update head position
-        player["x"] = x
-        player["y"] = y
-        
-        # Add new head segment
-        player["segments"].insert(0, {"x": x, "y": y})
-        
-        # Remove tail segment (unless ate food - snake grows)
-        if not ate_food:
-            player["segments"].pop()
-        
-        # Increment snapshot ID
-        self.game_state["snapshot_id"] += 1
-        
-        # Update timestamp
-        self.game_state["timestamp"] = int(time.time() * 1000)
-    
-    def spawn_food(self):
-        """Spawn food at random location not occupied by snake."""
-        player = self.game_state["players"]["0"]
-        segments = player["segments"]
-        
-        # Try up to 100 times to find empty location
-        for _ in range(100):
-            food_x = random.randint(0, GRID_WIDTH - 1)
-            food_y = random.randint(0, GRID_HEIGHT - 1)
-            
-            # Check if food position is on snake
-            on_snake = False
-            for segment in segments:
-                if segment["x"] == food_x and segment["y"] == food_y:
-                    on_snake = True
-                    break
-            
-            # Valid position found
-            if not on_snake:
-                self.game_state["food"]["x"] = food_x
-                self.game_state["food"]["y"] = food_y
-                return
-        
-        # Fallback: place at (0, 0) if grid is full
-        self.game_state["food"]["x"] = 0
-        self.game_state["food"]["y"] = 0
-
-
-if __name__ == "__main__":
-    import sys
-    
-    print("[UI] Starting Game Screen")
-    print("[UI] Controls: Arrow Keys to move, Q to quit")
-
-    # Ask whether to run offline or connect to server
-    mode = input("Enter '1' for offline test, '2' to connect to server: ").strip()
-
-    if mode == "1":
-        # Offline mock mode
-        screen = GameUI(client=None)
-    else:
-        # Online mode (real server)
-        player_name = input("Enter your player name: ").strip() or "Player"
-        client = Client()
-    if client.join_game(player_name):
-        print(f"[UI] Joined server as {player_name}")
-    else:
-        print("[UI] Failed to join server.")
-    screen = GameUI(client=client)
-
-    
-    try:
-        screen.run()
-    finally:
-        # Clean shutdown
-        if screen.client:
-            screen.client.stop()
-        pygame.quit()
-        print("[UI] Game closed")
