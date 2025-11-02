@@ -15,7 +15,8 @@ from .logging_utils import log_message
 
 SERVER_IP = "127.0.0.1"
 PORT = 9999
-TICK_RATE = 4  # updates per second
+STATE_TICK_RATE = 6  # updates per second
+SNAPSHOT_RATE = 20  # snapshots per second
 
 class Server:
     def __init__(self):
@@ -35,6 +36,8 @@ class Server:
         )
         pygame.display.set_caption("Server View - Snake World")
         self.clock = pygame.time.Clock()
+        self._state_interval = 1.0 / STATE_TICK_RATE if STATE_TICK_RATE else 0
+        self._snapshot_interval = 1.0 / SNAPSHOT_RATE if SNAPSHOT_RATE else 0
 
         log_message("INFO", "Server", f"Listening on {SERVER_IP}:{PORT}")
 
@@ -124,15 +127,37 @@ class Server:
     def run(self):
         """Main loop"""
         threading.Thread(target=self.listen, daemon=True).start()
+        last_state_update = time.monotonic()
+        last_snapshot_broadcast = time.monotonic()
+        max_loop_rate = max(STATE_TICK_RATE, SNAPSHOT_RATE, 60)  # at least 60Hz for smooth pygame
+
         while self.running:
             for e in pygame.event.get():
                 if e.type == pygame.QUIT:
                     self.running = False
 
-            self.state.update_state()
-            self.broadcast_snapshot()
+            # self.state.update_state()
+            # self.broadcast_snapshot()
+
+            now = time.monotonic()
+
+            if self._state_interval:
+                while now - last_state_update >= self._state_interval:
+                    self.state.update_state()
+                    last_state_update += self._state_interval
+            else:
+                self.state.update_state()
+
+            if self._snapshot_interval:
+                while now - last_snapshot_broadcast >= self._snapshot_interval:
+                    self.broadcast_snapshot()
+                    last_snapshot_broadcast += self._snapshot_interval
+            else:
+                self.broadcast_snapshot()
+
+
             self.draw()
-            self.clock.tick(TICK_RATE)
+            self.clock.tick(max_loop_rate)
 
         pygame.quit()
         log_message("INFO", "Server", "Shutting down...")
