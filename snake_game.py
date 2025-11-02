@@ -4,6 +4,7 @@ import threading
 import time
 import random
 from enum import Enum
+from client import Client
 
 # screen dimensions
 WIN_WIDTH = 1000
@@ -399,11 +400,7 @@ class GameUI:
         Called when user presses arrow key.
         """
         if self.client:
-            # Create move message as JSON
-            move_data = json.dumps({"direction": self.player_direction})
-            
-            # Send to server (non-blocking)
-            self.client.make_move(move_data)
+            self.client.make_move(self.player_direction)
     
     def update(self):
         """
@@ -681,20 +678,33 @@ class MockGameState:
 
 
 if __name__ == "__main__":
-    # For testing: run without client
-    # To use with real client:
-    # from client import Client
-    # client = Client()
-    # client.start_receiver_thread()
-    # screen = GameScreen(client)
+    import sys
     
-    print("[UI] Starting Game Screen (TEST MODE - No Server)")
+    print("[UI] Starting Game Screen")
     print("[UI] Controls: Arrow Keys to move, Q to quit")
+
+    # Ask whether to run offline or connect to server
+    mode = input("Enter '1' for offline test, '2' to connect to server: ").strip()
+
+    if mode == "1":
+        # Offline mock mode
+        screen = GameUI(client=None)
+    else:
+        # Online mode (real server)
+        player_name = input("Enter your player name: ").strip() or "Player"
+        client = Client()
+    if client.join_game(player_name):
+        print(f"[UI] Joined server as {player_name}")
+    else:
+        print("[UI] Failed to join server.")
+    screen = GameUI(client=client)
+
     
-    # Create game screen without client (mock mode)
-    screen = GameUI(client=None)
-    
-    # Run the game
-    screen.run()
-    
-    print("[UI] Game closed")
+    try:
+        screen.run()
+    finally:
+        # Clean shutdown
+        if screen.client:
+            screen.client.stop()
+        pygame.quit()
+        print("[UI] Game closed")
