@@ -9,11 +9,11 @@ import threading
 import time
 import json
 import pygame
-from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END
+from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
 from state import State
 from logging_utils import log_message
 
-SERVER_IP = "0.0.0.0"
+SERVER_IP = "127.0.0.1"
 PORT = 9999
 TICK_RATE = 15  # updates per second
 
@@ -53,14 +53,35 @@ class Server:
     def process_packet(self, packet, addr):
         """Handles messages from clients"""
         if packet.msg_type == MSG_INIT:
-            username = packet.payload.decode()
+            # Decode username (can be JSON or raw string)
+            try:
+                payload = packet.payload.decode()
+                data = json.loads(payload)
+                username = data.get("username", payload)
+            except Exception:
+                username = packet.payload.decode()
+
+            # Register player
             self.clients[username] = addr
             self.state.add_player(username)
             log_message("INFO", "Server", f"{username} joined from {addr}")
 
+            # --- NEW: Send ACK packet back ---
+            ack_payload = json.dumps({"player_id": username}).encode("utf-8")
+            ack_packet = Packet.encode_packet(
+                MSG_ACK,
+                0,  # snapshot_id (unused here)
+                0,  # seq_num (unused here)
+                int(time.time() * 1000),
+                len(ack_payload),
+                ack_payload
+            )
+            self.sock.sendto(ack_packet, addr)
+            log_message("INFO", "Server", f"Sent ACK to {username}")
+
         elif packet.msg_type == MSG_EVENT:
             data = json.loads(packet.payload.decode())
-            username = data["username"]
+            username = data.get("player_id") or data.get("username")
             direction = data["direction"]
             self.state.update_player_direction(username, direction)
 
@@ -70,6 +91,7 @@ class Server:
             if username in self.clients:
                 del self.clients[username]
             log_message("INFO", "Server", f"{username} disconnected")
+
 
     def broadcast_snapshot(self):
         """Sends the current game state to all clients"""

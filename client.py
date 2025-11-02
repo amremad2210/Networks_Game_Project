@@ -8,7 +8,7 @@ from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
 
 
 class Client():
-    def __init__(self, server_host='localhost', server_port=9999):
+    def __init__(self, server_host='127.0.0.1', server_port=9999):
         self.server_host = server_host
         self.server_port = server_port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -103,7 +103,8 @@ class Client():
             return False
 
         move_data = {
-            'player_id': self.player_id,
+            # server expects 'username' in current server implementation
++           'username': self.username,
             'direction': direction.upper(),
             'timestamp': int(time.time() * 1000)
         }
@@ -250,3 +251,5 @@ class Client():
    
 if __name__ == "__main__":
     player= Client()
+    # player.join_game("Jana")
+    # player.stop()

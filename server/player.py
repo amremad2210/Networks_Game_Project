@@ -31,3 +31,9 @@ class Player:
         if self.get_head() in occupied[1:]:  # ignore own head
             return False
         return True
+    def stop(self):
+        """Clean up client resources"""
+        self.connected = False
+        if self.receive_thread and self.receive_thread.is_alive():
+            self.receive_thread.join(timeout=1)
+        self.sock.close()
