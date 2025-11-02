@@ -10,12 +10,12 @@ import time
 import json
 import pygame
 from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
-from state import State
-from logging_utils import log_message
+from .state import State
+from .logging_utils import log_message
 
 SERVER_IP = "127.0.0.1"
 PORT = 9999
-TICK_RATE = 8  # updates per second
+TICK_RATE = 4  # updates per second
 
 class Server:
     def __init__(self):

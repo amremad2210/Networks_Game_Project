@@ -1,7 +1,7 @@
 import json
 import random
-from player import Player
-from logging_utils import log_message
+from .player import Player
+from .logging_utils import log_message
 
 class State:
     DIRECTION_MAP = {
