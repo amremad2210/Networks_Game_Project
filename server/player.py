@@ -45,7 +45,7 @@ class Player:
 
     def check_alive(self, occupied, dimensions):
         x, y = self.get_head()
-        if x <= 0 or x >= dimensions[0]-1 or y <= 0 or y >= dimensions[1]-1:
+        if x < 0 or x > dimensions[0]-1 or y < 0 or y > dimensions[1]-1:
             return False
         if self.get_head() in occupied[1:]:  # ignore own head
             return False
