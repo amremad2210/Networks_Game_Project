@@ -1,13 +1,7 @@
 import pygame
-import json
-import threading
-import time
-import random
-from enum import Enum
-from client import Client
-#from login_class import LoginScreen
+
 # screen dimensions
-WIN_WIDTH = 1000
+WIN_WIDTH = 800
 WIN_HEIGHT= 700
 
 # grid config (20 x 20)

@@ -1,14 +1,14 @@
 import json
 import random
-from .player import Player
-from .logging_utils import log_message
+from player import Player
+from logging_utils import log_message
 
 class State:
     DIRECTION_MAP = {
-        "w": [-1, 0],
-        "a": [0, -1],
-        "s": [1, 0],
-        "d": [0, 1]
+        "UP": [-1, 0],
+        "LEFT": [0, -1],
+        "DOWN": [1, 0],
+        "RIGHT": [0, 1]
     }
 
     def __init__(self):

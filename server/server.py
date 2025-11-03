@@ -10,12 +10,12 @@ import time
 import json
 import pygame
 from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
-from .state import State
-from .logging_utils import log_message
+from state import State
+from logging_utils import log_message
 
 SERVER_IP = "127.0.0.1"
 PORT = 9999
-STATE_TICK_RATE = 6  # updates per second
+STATE_TICK_RATE = 1  # updates per second
 SNAPSHOT_RATE = 20  # snapshots per second
 
 class Server:
@@ -28,14 +28,8 @@ class Server:
         self.snapshot_id = 0
         self.running = True
 
-        # Optional pygame view of the world
-        pygame.init()
-        self.cell_size = 20
-        self.window = pygame.display.set_mode(
-            (self.state.dimensions[1]*self.cell_size, self.state.dimensions[0]*self.cell_size)
-        )
-        pygame.display.set_caption("Server View - Snake World")
         self.clock = pygame.time.Clock()
+        
         self._state_interval = 1.0 / STATE_TICK_RATE if STATE_TICK_RATE else 0
         self._snapshot_interval = 1.0 / SNAPSHOT_RATE if SNAPSHOT_RATE else 0
 
@@ -109,35 +103,15 @@ class Server:
             # DEBUG: Print what server is sending
             print("[SERVER] Sending snapshot")
             #print(json.dumps(json.loads(state_json), indent=2)[:500])  # Print first 500 chars
-            
-
-    def draw(self):
-        """Optional: render server-side visualization"""
-        self.window.fill((0, 0, 0))
-        fx, fy = self.state.food
-        pygame.draw.rect(self.window, (255, 0, 0),
-                         (fy*self.cell_size, fx*self.cell_size, self.cell_size, self.cell_size))
-
-        for p in self.state.players.values():
-            for x, y in p.segments:
-                pygame.draw.rect(self.window, (0, 255, 0),
-                                 (y*self.cell_size, x*self.cell_size, self.cell_size, self.cell_size))
-        pygame.display.flip()
 
     def run(self):
         """Main loop"""
-        threading.Thread(target=self.listen, daemon=True).start()
+        threading.Thread(target=self.listen, daemon=True).start() #reciever thread
         last_state_update = time.monotonic()
         last_snapshot_broadcast = time.monotonic()
         max_loop_rate = max(STATE_TICK_RATE, SNAPSHOT_RATE, 60)  # at least 60Hz for smooth pygame
-
+        
         while self.running:
-            for e in pygame.event.get():
-                if e.type == pygame.QUIT:
-                    self.running = False
-
-            # self.state.update_state()
-            # self.broadcast_snapshot()
 
             now = time.monotonic()
 
@@ -155,8 +129,6 @@ class Server:
             else:
                 self.broadcast_snapshot()
 
-
-            self.draw()
             self.clock.tick(max_loop_rate)
 
         pygame.quit()
