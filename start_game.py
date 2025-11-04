@@ -249,18 +249,67 @@ class LoginScreen:
             return None
 
 
+def stop(self):
+    self.running = False
+
+
+def automated_play(game, duration=15):
+    """
+    Simulate automated gameplay for network test automation.
+    Moves RIGHT every second.
+    """
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
+        pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pygame.K_RIGHT))
+        time.sleep(1)
+    print("[Automated] Finished automated gameplay.")
+
+
 if __name__ == "__main__":
-    # Step 1: Show login screen
-    print("[Main] Starting login screen...")
-    login = LoginScreen()
-    client = login.run()
-    
-    # Check if login was successful
+    import os
+    import time
+
+    def auto_login():
+        login = LoginScreen()
+        auto_user = os.getenv('AUTO_USERNAME')
+        if auto_user:
+            login.username = auto_user
+            login.try_join()
+            timeout = 10
+            start_time = time.time()
+            while not login.login_complete and time.time() - start_time < timeout:
+                login.handle_events()
+                login.render()
+                login.clock.tick(FPS)
+            if not login.login_complete:
+                print("Auto-login failed or timeout")
+                pygame.quit()
+                return None
+            return login.client
+        else:
+            return login.run()
+
+    client = auto_login()
     if client is None:
-        print("[Main] Login failed or cancelled")
+        print("Login failed or cancelled")
         pygame.quit()
+        exit()
+
+    game = GameUI(client)
+
+    if os.getenv("AUTOMATE") == "1":
+        import threading
+        game_thread = threading.Thread(target=game.run)
+        game_thread.start()
+
+        automated_play(game, 20)
+
+        game.stop()  # signal the game loop to stop
+
+        game_thread.join()
+
+        pygame.quit()
+
     else:
-        # Step 2: Show game screen with connected client
-        print(f"[Main] Login successful! Player ID: {client.player_id}")
-        game = GameUI(client)
         game.run()
