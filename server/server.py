@@ -33,6 +33,9 @@ class Server:
         self._state_interval = 1.0 / STATE_TICK_RATE if STATE_TICK_RATE else 0
         self._snapshot_interval = 1.0 / SNAPSHOT_RATE if SNAPSHOT_RATE else 0
 
+        self.state_lock = threading.Lock() # used for safe threading
+        self.clients_lock = threading.Lock() # used for safe threading
+
         log_message("INFO", "Server", f"Listening on {SERVER_IP}:{PORT}")
 
     def listen(self):
@@ -43,7 +46,10 @@ class Server:
                 packet = Packet.decode_packet(data)
                 if not packet:
                     continue
-                self.process_packet(packet, addr)
+                
+                # handle threading safely
+                with self.state_lock:
+                    self.process_packet(packet, addr)
             except Exception as e:
                 log_message("ERROR", "Server", str(e))
 
@@ -59,7 +65,8 @@ class Server:
                 username = packet.payload.decode()
 
             # Register player
-            self.clients[username] = addr
+            with self.clients_lock:
+                self.clients[username] = addr
             self.state.add_player(username)
             log_message("INFO", "Server", f"{username} joined from {addr}")
 
@@ -85,24 +92,27 @@ class Server:
         elif packet.msg_type == MSG_END:
             username = packet.payload.decode()
             self.state.remove_player(username)
-            if username in self.clients:
-                del self.clients[username]
+            with self.clients_lock:
+                if username in self.clients:
+                    del self.clients[username]
             log_message("INFO", "Server", f"{username} disconnected")
 
 
     def broadcast_snapshot(self):
         """Sends the current game state to all clients"""
-        state_json = self.state.to_json().encode()
+        with self.state_lock:
+            state_json = self.state.to_json().encode()
         self.snapshot_id += 1
         packet_bytes = Packet.encode_packet(
             MSG_SNAPSHOT, self.snapshot_id, 0, int(time.time()*1000),
             len(state_json), state_json
         )
-        for addr in self.clients.values():
-            self.sock.sendto(packet_bytes, addr)
-            # DEBUG: Print what server is sending
-            print("[SERVER] Sending snapshot")
-            #print(json.dumps(json.loads(state_json), indent=2)[:500])  # Print first 500 chars
+        with self.clients_lock:
+            for addr in self.clients.values():
+                self.sock.sendto(packet_bytes, addr)
+                # DEBUG: Print what server is sending
+                #print("[SERVER] Sending snapshot")
+                print(f"[Sending State] {json.dumps(json.loads(state_json), indent=2)[:500]}")  # Print first 500 chars
 
     def run(self):
         """Main loop"""
@@ -117,10 +127,12 @@ class Server:
 
             if self._state_interval:
                 while now - last_state_update >= self._state_interval:
-                    self.state.update_state()
+                    with self.state_lock:
+                        self.state.update_state()
                     last_state_update += self._state_interval
             else:
-                self.state.update_state()
+                with self.state_lock:
+                    self.state.update_state()
 
             if self._snapshot_interval:
                 while now - last_snapshot_broadcast >= self._snapshot_interval:

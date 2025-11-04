@@ -258,7 +258,7 @@ class ScoreBoard:
         
         for player_id, player_data in sorted(players.items()):
             # Get player info
-            print(f"[DEBUG] Player {player_id}: {player_data}")
+            #print(f"[DEBUG] Player {player_id}: {player_data}")
         
             username = player_data.get("username", f"Player {player_id}")
             score = player_data.get("score", 0)
