@@ -3,7 +3,14 @@ import threading
 import time
 import json
 import csv
+import math
+import copy
+import importlib
 from datetime import datetime
+
+psutil_spec = importlib.util.find_spec("psutil")
+psutil = importlib.import_module('psutil') if psutil_spec else None
+
 from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
 
 class Client():
@@ -55,6 +62,24 @@ class Client():
             'perceived_position_error', 'cpu_percent', 'bandwidth_per_client_kbps'
         ])
         self.metrics_last_latency = None
+        self._last_snapshot_state = None
+        self._last_snapshot_recv_time = None
+        self._direction_vectors = {
+            'UP': (0, -1),
+            'DOWN': (0, 1),
+            'LEFT': (-1, 0),
+            'RIGHT': (1, 0)
+        }
+        self._process = None
+        if psutil is not None:
+            try:
+                self._process = psutil.Process()
+                # Prime cpu_percent so that subsequent calls return deltas
+                self._process.cpu_percent(interval=None)
+            except Exception:
+                self._process = None
+
+
 
     def log_metrics(
         self, packet,
@@ -84,6 +109,68 @@ class Client():
         ])
         self.metrics_file.flush()
     # ---------------------------------------------------
+
+    def _find_player_state(self, state):
+        if not isinstance(state, dict):
+            return None, None
+
+        players = state.get('players') or {}
+        for player in players.values():
+            if player.get('username') == self.username:
+                segments = player.get('segments') or []
+                head = segments[0] if segments else None
+                direction = player.get('direction')
+                return head, direction
+        return None, None
+
+    def _calculate_perceived_position_error(self, previous_state, current_state):
+        if not previous_state or not current_state or not self.username:
+            return 0.0
+
+        prev_head, prev_direction = self._find_player_state(previous_state)
+        current_head, _ = self._find_player_state(current_state)
+
+        if not prev_head or not current_head or not prev_direction:
+            return 0.0
+
+        movement = self._direction_vectors.get(prev_direction.upper())
+        if not movement:
+            return 0.0
+
+        predicted_x = prev_head.get('x', 0) + movement[0]
+        predicted_y = prev_head.get('y', 0) + movement[1]
+        actual_x = current_head.get('x', 0)
+        actual_y = current_head.get('y', 0)
+
+        return round(math.hypot(actual_x - predicted_x, actual_y - predicted_y), 4)
+
+    def _get_cpu_percent(self):
+        if not self._process:
+            return 0.0
+
+        try:
+            return round(self._process.cpu_percent(interval=None), 2)
+        except Exception:
+            return 0.0
+
+    def _calculate_bandwidth(self, raw_size):
+        now = time.time()
+        if self._last_snapshot_recv_time is None:
+            self._last_snapshot_recv_time = now
+            return 0.0
+
+        elapsed = now - self._last_snapshot_recv_time
+        self._last_snapshot_recv_time = now
+
+        if elapsed <= 0 or not raw_size:
+            return 0.0
+
+        # Convert bytes per second to kilobits per second
+        kbps = (raw_size * 8) / (elapsed * 1000.0)
+        return round(kbps, 3)
+
+
+
 
     def log_msg(self, packet, direction=None):
         """Log all messages to CSV file"""
@@ -175,7 +262,7 @@ class Client():
         self.client_seq_num += 1
         return True
 
-    def handle_snapshot(self, packet):
+    def handle_snapshot(self, packet, raw_size):
         """
         Handles incoming SNAPSHOT packets from the server.
         Decodes the JSON payload and updates the client's game state.
@@ -185,6 +272,8 @@ class Client():
             payload = json.loads(packet.payload.decode('utf-8'))
             snapshot_id = packet.snapshot_id
             server_timestamp = packet.timestamp
+            previous_state = copy.deepcopy(self._last_snapshot_state) if self._last_snapshot_state else None
+
 
             if hasattr(self, 'last_snapshot_id') and snapshot_id <= self.last_snapshot_id:
                 print(f"[Client] Ignored outdated snapshot {snapshot_id}")
@@ -200,12 +289,17 @@ class Client():
             self.log_msg(packet, "RECEIVED")
 
             # LOG METRICS HERE (add real error/cpu/bw if available)
+            perceived_error = self._calculate_perceived_position_error(previous_state, payload)
+            cpu_percent = self._get_cpu_percent()
+            bandwidth_kbps = self._calculate_bandwidth(raw_size)
             self.log_metrics(
                 packet,
-                perceived_position_error=0.0,
-                cpu_percent=0.0,
-                bandwidth_kbps=0.0
+                perceived_position_error=perceived_error,
+                cpu_percent=cpu_percent,
+                bandwidth_kbps=bandwidth_kbps
             )
+
+            self._last_snapshot_state = copy.deepcopy(payload)
 
         except json.JSONDecodeError:
             print("[Client] Failed to decode SNAPSHOT payload (invalid JSON).")
@@ -239,7 +333,7 @@ class Client():
                 self.server_address = addr
 
             if packet.msg_type == MSG_SNAPSHOT:
-                self.handle_snapshot(packet)
+                self.handle_snapshot(packet, len(data))
             elif packet.msg_type == MSG_ACK:
                 try:
                     _ = packet.payload.decode('utf-8') if packet.payload_len else ""
