@@ -3,8 +3,11 @@ import threading
 import time
 import json
 import csv
+import sys
+import os
 from datetime import datetime
-from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from common.packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
 
 class Client():
     def __init__(self, server_host='127.0.0.1', server_port=9999):
@@ -194,8 +197,8 @@ class Client():
             self.game_state = payload
             self.last_server_timestamp = server_timestamp
 
-            print(f"[Client] Updated game state from snapshot {snapshot_id} "
-                  f"({len(payload)} keys, timestamp={server_timestamp})")
+           # print(f"[Client] Updated game state from snapshot {snapshot_id} "
+            #      f"({len(payload)} keys, timestamp={server_timestamp})")
 
             self.log_msg(packet, "RECEIVED")
 

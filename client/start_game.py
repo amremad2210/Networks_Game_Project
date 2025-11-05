@@ -259,36 +259,38 @@ def automated_play(game, duration=15):
     Moves RIGHT every second.
     """
     start_time = time.time()
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
     while time.time() - start_time < duration:
-        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+        time.sleep(1)
         pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pygame.K_RIGHT))
         time.sleep(1)
     print("[Automated] Finished automated gameplay.")
+
+def auto_login():
+    login = LoginScreen()
+    auto_user = os.getenv('AUTO_USERNAME')
+    if auto_user:
+        login.username = auto_user
+        login.try_join()
+        timeout = 10
+        start_time = time.time()
+        while not login.login_complete and time.time() - start_time < timeout:
+            login.handle_events()
+            login.render()
+            login.clock.tick(FPS)
+        if not login.login_complete:
+            print("Auto-login failed or timeout")
+            pygame.quit()
+            return None
+        return login.client
+    else:
+        return login.run()
 
 
 if __name__ == "__main__":
     import os
     import time
-
-    def auto_login():
-        login = LoginScreen()
-        auto_user = os.getenv('AUTO_USERNAME')
-        if auto_user:
-            login.username = auto_user
-            login.try_join()
-            timeout = 10
-            start_time = time.time()
-            while not login.login_complete and time.time() - start_time < timeout:
-                login.handle_events()
-                login.render()
-                login.clock.tick(FPS)
-            if not login.login_complete:
-                print("Auto-login failed or timeout")
-                pygame.quit()
-                return None
-            return login.client
-        else:
-            return login.run()
 
     client = auto_login()
     if client is None:
@@ -303,9 +305,9 @@ if __name__ == "__main__":
         game_thread = threading.Thread(target=game.run)
         game_thread.start()
 
-        automated_play(game, 20)
+        automated_play(game, 5)
 
-        game.stop()  # signal the game loop to stop
+        #game.stop()  # signal the game loop to stop
 
         game_thread.join()
 

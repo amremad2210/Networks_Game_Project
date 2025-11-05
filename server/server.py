@@ -9,7 +9,7 @@ import threading
 import time
 import json
 import pygame
-from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
+from common.packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
 from state import State
 from logging_utils import log_message
 
@@ -112,7 +112,7 @@ class Server:
                 self.sock.sendto(packet_bytes, addr)
                 # DEBUG: Print what server is sending
                 #print("[SERVER] Sending snapshot")
-                print(f"[Sending State] {json.dumps(json.loads(state_json), indent=2)[:500]}")  # Print first 500 chars
+                #print(f"[Sending State] {json.dumps(json.loads(state_json), indent=2)[:500]}")  # Print first 500 chars
 
     def run(self):
         """Main loop"""
