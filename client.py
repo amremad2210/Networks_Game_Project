@@ -6,7 +6,6 @@ import csv
 from datetime import datetime
 from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
 
-
 class Client():
     def __init__(self, server_host='127.0.0.1', server_port=9999):
         self.server_host = server_host
@@ -34,6 +33,7 @@ class Client():
         self.log_file = None
         self.csv_writer = None
         self.setup_logging()
+        self.setup_metrics_logging()
 
     def setup_logging(self):
         """Setup CSV logging for messages"""
@@ -44,7 +44,47 @@ class Client():
             'timestamp', 'client_id', 'msg_type', 'seq_num', 'snapshot_id',
             'server_timestamp', 'payload_size', 'direction'
         ])
-    
+
+    # ----------- Metrics Logging Additions ------------
+    def setup_metrics_logging(self):
+        self.metrics_file = open('metrics.csv', 'w', newline='')
+        self.metrics_writer = csv.writer(self.metrics_file)
+        self.metrics_writer.writerow([
+            'client_id', 'snapshot_id', 'seq_num', 'server_timestamp_ms',
+            'recv_time_ms', 'latency_ms', 'jitter_ms',
+            'perceived_position_error', 'cpu_percent', 'bandwidth_per_client_kbps'
+        ])
+        self.metrics_last_latency = None
+
+    def log_metrics(
+        self, packet,
+        perceived_position_error=0.0,
+        cpu_percent=0.0,
+        bandwidth_kbps=0.0
+    ):
+        recv_time_ms = int(time.time() * 1000)
+        server_timestamp_ms = getattr(packet, "timestamp", 0)
+        latency_ms = recv_time_ms - server_timestamp_ms
+        if self.metrics_last_latency is None:
+            jitter_ms = 0
+        else:
+            jitter_ms = abs(latency_ms - self.metrics_last_latency)
+        self.metrics_last_latency = latency_ms
+        self.metrics_writer.writerow([
+            self.player_id,
+            getattr(packet, "snapshot_id", 0),
+            getattr(packet, "seq_num", 0),
+            server_timestamp_ms,
+            recv_time_ms,
+            latency_ms,
+            jitter_ms,
+            perceived_position_error,
+            cpu_percent,
+            bandwidth_kbps
+        ])
+        self.metrics_file.flush()
+    # ---------------------------------------------------
+
     def log_msg(self, packet, direction=None):
         """Log all messages to CSV file"""
         if self.csv_writer and packet:
@@ -102,11 +142,19 @@ class Client():
         if not self.connected:
             return False
         # Map arrow key directions to server's expected keys
-       
+        direction_map = {
+            "UP": "w",
+            "DOWN": "s",
+            "LEFT": "a",
+            "RIGHT": "d"
+        }
+
+        server_direction = direction_map.get(direction.upper(), "d")
+
         move_data = {
             # server expects 'username' in current server implementation
             'username': self.username,
-            'direction': direction,
+            'direction': server_direction,
             'timestamp': int(time.time() * 1000)
         }
 
@@ -134,29 +182,31 @@ class Client():
         Older snapshots (by snapshot_id) are ignored.
         """
         try:
-            #Decode the JSON payload
             payload = json.loads(packet.payload.decode('utf-8'))
             snapshot_id = packet.snapshot_id
             server_timestamp = packet.timestamp
 
-            # Ignore older snapshots
             if hasattr(self, 'last_snapshot_id') and snapshot_id <= self.last_snapshot_id:
                 print(f"[Client] Ignored outdated snapshot {snapshot_id}")
                 return
-            
-            # Update game state
-            self.last_snapshot_id = snapshot_id
 
-            #Update local cached game state
+            self.last_snapshot_id = snapshot_id
             self.game_state = payload
             self.last_server_timestamp = server_timestamp
 
             print(f"[Client] Updated game state from snapshot {snapshot_id} "
-              f"({len(payload)} keys, timestamp={server_timestamp})")
-            
-            # Log SNAPSHOT message
+                  f"({len(payload)} keys, timestamp={server_timestamp})")
+
             self.log_msg(packet, "RECEIVED")
-            
+
+            # LOG METRICS HERE (add real error/cpu/bw if available)
+            self.log_metrics(
+                packet,
+                perceived_position_error=0.0,
+                cpu_percent=0.0,
+                bandwidth_kbps=0.0
+            )
+
         except json.JSONDecodeError:
             print("[Client] Failed to decode SNAPSHOT payload (invalid JSON).")
         except Exception as e:
@@ -165,15 +215,8 @@ class Client():
         pass
 
     def receive_messages(self):
-        """  
-        Background receive loop:
-            - Decodes incoming packets
-            - Dispatches to handlers (SNAPSHOT/ACK/END)
-            - Logs everything
-        Run this in a thread: threading.Thread(target=self.receive_messages, daemon=True).start() 
-        """
-
-        self.sock.settimeout(0.25)  # Set timeout for recvfrom
+        """Background receive loop"""
+        self.sock.settimeout(0.25)
         self._rx_running = True
         print("[Client] Starting receive loop...")
 
@@ -181,36 +224,31 @@ class Client():
             try:
                 data, addr = self.sock.recvfrom(4096)
             except socket.timeout:
-                continue  # No data received, loop again
+                continue
             except OSError:
-                break  # Socket closed, exit loop
+                break
             except Exception as e:
                 print(f"[Client] Receive error: {e}")
                 continue
 
             packet = Packet.decode_packet(data)
             if not packet:
-                continue  # Corrupt or failed CRC etc
+                continue
 
-            if self.server_address is None: # First packet received, store server address
-                self.server_address = addr 
+            if self.server_address is None:
+                self.server_address = addr
 
-            if packet.msg_type == MSG_SNAPSHOT: #Dispatch by msg_type
+            if packet.msg_type == MSG_SNAPSHOT:
                 self.handle_snapshot(packet)
-
-            #Generic ACKs and logging for completeness
             elif packet.msg_type == MSG_ACK:
                 try:
-                    _ = packet.payload.decode('utf-8') if packet.payload_len else ""    # Process ACK payload if needed
+                    _ = packet.payload.decode('utf-8') if packet.payload_len else ""
                 except Exception:
                     pass
-                self.log_msg(packet, "RECIEVED")
-
+                self.log_msg(packet, "RECEIVED")
             elif packet.msg_type == MSG_END:
-                #server indicated game over or disconnection
                 try:
                     payload_text = packet.payload.decode('utf-8') if packet.payload_len else ""
-                    # if server sends JSON payload, we can parse it here
                     if payload_text.strip().startswith('{'):
                         info = json.loads(payload_text)
                         self.game_state['game_over'] = bool(info.get('game_over', True))
@@ -225,7 +263,6 @@ class Client():
             else:
                 print(f"[Client] Received unknown packet type: {packet.msg_type}")
                 self.log_msg(packet, "RECEIVED")
-        
         print("[Client] Receive loop terminated.")
         pass
 
@@ -240,9 +277,14 @@ class Client():
         finally:
             if self.log_file:
                 self.log_file.close()
+            try:
+                self.metrics_file.close()
+            except Exception:
+                pass
 
+    def sync_game(self):
+        pass
 
-   
 if __name__ == "__main__":
     player= Client()
     # player.join_game("Jana")
