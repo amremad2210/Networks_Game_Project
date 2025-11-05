@@ -2,6 +2,11 @@
 
 # source ~/myenv/bin/activate
 
+#for my linux machine (maybe change this path accordingly -amr)
+source .venv/bin/activate
+pip install pygame psutil
+
+
 PYTHON_DIR="$HOME/Documents/Networks_Game_Project"
 IFACE="lo"
 scenarios=("none" "loss_2" "loss_5" "delay_100")
