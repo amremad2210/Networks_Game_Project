@@ -7,7 +7,7 @@
 #pip install pygame psutil
 
 
-PYTHON_DIR=~/networks_project/Networks_Game_Project #change 3la 7asab el project fen -aya
+PYTHON_DIR=/home/amremad2210/Documents/Networks_Game_Project #change 3la 7asab el project fen -aya
 IFACE="lo"
 scenarios=("none") # "loss_2" "loss_5" "delay_100")
 

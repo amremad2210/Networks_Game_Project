@@ -2,6 +2,7 @@
 *.pyc
 *.log
 *.pcap
+*.txt
 
 # Python cache
 __pycache__/
