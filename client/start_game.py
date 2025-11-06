@@ -287,7 +287,6 @@ def auto_login():
     else:
         return login.run()
 
-
 if __name__ == "__main__":
     import os
     import time
@@ -302,16 +301,18 @@ if __name__ == "__main__":
 
     if os.getenv("AUTOMATE") == "1":
         import threading
-        game_thread = threading.Thread(target=game.run)
-        game_thread.start()
 
-        automated_play(game, 5)
+        # Start ONLY the automation in a background thread
+        t = threading.Thread(target=automated_play, args=(game, 5), daemon=True)
+        t.start()
 
-        #game.stop()  # signal the game loop to stop
+        # Run the game loop on the MAIN thread (same one that created the window)
+        game.run()
 
-        game_thread.join()
+        # Wait for automation to finish (it likely finished already)
+        t.join()
 
-        pygame.quit()
-
+        # game.run() calls pygame.quit() on exit; if not, you can still call:
+        # pygame.quit()
     else:
         game.run()
