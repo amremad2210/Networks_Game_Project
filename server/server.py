@@ -9,13 +9,18 @@ import threading
 import time
 import json
 import pygame
+import csv
+import importlib
 from common.packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_END, MSG_ACK
 from state import State
 from logging_utils import log_message
 
+psutil_spec = importlib.util.find_spec("psutil")
+psutil = importlib.import_module('psutil') if psutil_spec else None
+
 SERVER_IP = "127.0.0.1"
 PORT = 9999
-STATE_TICK_RATE = 1  # updates per second
+STATE_TICK_RATE = 3  # updates per second
 SNAPSHOT_RATE = 20  # snapshots per second
 
 class Server:
@@ -37,6 +42,9 @@ class Server:
         self.clients_lock = threading.Lock() # used for safe threading
 
         log_message("INFO", "Server", f"Listening on {SERVER_IP}:{PORT}")
+        self.log_file = None
+        self.csv_writer = None
+        self.setup_metrics_logging()
 
     def listen(self):
         """Listens for UDP messages from clients"""
@@ -103,10 +111,13 @@ class Server:
         with self.state_lock:
             state_json = self.state.to_json().encode()
         self.snapshot_id += 1
+        server_timestamp = int(time.time()*1000)
         packet_bytes = Packet.encode_packet(
-            MSG_SNAPSHOT, self.snapshot_id, 0, int(time.time()*1000),
+            MSG_SNAPSHOT, self.snapshot_id, 0, server_timestamp,
             len(state_json), state_json
         )
+        self.log_metrics(self.snapshot_id, 0, server_timestamp)
+            
         with self.clients_lock:
             for addr in self.clients.values():
                 self.sock.sendto(packet_bytes, addr)
@@ -145,6 +156,59 @@ class Server:
 
         pygame.quit()
         log_message("INFO", "Server", "Shutting down...")
+
+    # for tests and logging
+    def _get_cpu_percent(self):
+        if not self._process:
+            return 0.0
+
+        try:
+            return round(self._process.cpu_percent(interval=None), 2)
+        except Exception:
+            return 0.0
+        
+    def _extract_player_positions(self):
+        """Extract all player positions from current state"""
+        positions = {}
+        with self.state_lock:
+            for username, player in self.state.players.items():
+                if player.alive and player.segments:
+                    head = player.segments[0]
+                    # Convert [y, x] to {x, y} format
+                    positions[username] = {"x": head[1], "y": head[0]}
+        return json.dumps(positions)
+    
+    def setup_metrics_logging(self):
+        self.metrics_file = open('server_metrics.csv', 'w', newline='')
+        self.metrics_writer = csv.writer(self.metrics_file)
+        self.metrics_writer.writerow([
+            'snapshot_id', 'seq_num', 'server_timestamp_ms',
+            'cpu_percent', 'players_pos'
+        ])
+        
+        self._process = None
+        if psutil is not None:
+            try:
+                self._process = psutil.Process()
+                # Prime cpu_percent so that subsequent calls return deltas
+                self._process.cpu_percent(interval=None)
+            except Exception:
+                self._process = None
+
+    def log_metrics(self, snapshot_id, seq_num, server_timestamp):
+        cpu_percent = self._get_cpu_percent()
+        players_position = self._extract_player_positions()
+
+        self.metrics_writer.writerow([
+            snapshot_id,
+            seq_num,
+            server_timestamp,
+            cpu_percent,
+            players_position
+            
+        ])
+        self.metrics_file.flush()
+    # ---------------------------------------------------
 
 if __name__ == "__main__":
     Server().run()
