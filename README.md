@@ -9,6 +9,8 @@
 
 ### to run the baseline test:
     the baseline test script starts the server, and automates 2 clients, then prepares evalution metrics
+
+    IMPORTANT: CHANGE THE PROJ_DIR VARIABLE IN THE basline.sh SCRIPT TO SUIT UR LOCAL MACHINE
     
     1. make sure you have these packages installed: pip install pygame psutil
     2. run the baseline test script: ./scripts/baseline.sh
