@@ -231,20 +231,11 @@ class Client():
         """Send EVENT message to server"""
         if not self.connected:
             return False
-        # Map arrow key directions to server's expected keys
-        direction_map = {
-            "UP": "w",
-            "DOWN": "s",
-            "LEFT": "a",
-            "RIGHT": "d"
-        }
-
-        server_direction = direction_map.get(direction.upper(), "d")
-
+       
         move_data = {
             # server expects 'username' in current server implementation
             'username': self.username,
-            'direction': server_direction,
+            'direction': direction,
             'timestamp': int(time.time() * 1000)
         }
 
