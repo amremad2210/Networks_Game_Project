@@ -1,6 +1,6 @@
 #!/bin/bash
 #change dir to project directory
-PYTHON_DIR=~/networks_project/Networks_Game_Project
+PYTHON_DIR=/home/amremad2210/Documents/Networks_Game_Project
 IFACE="lo"
 
 safe_tc_qdisc_del() {
