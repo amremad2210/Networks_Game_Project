@@ -7,11 +7,7 @@ import sys
 import os
 import math
 import copy
-import importlib
 from datetime import datetime
-
-psutil_spec = importlib.util.find_spec("psutil")
-psutil = importlib.import_module('psutil') if psutil_spec else None
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from common.packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
@@ -57,104 +53,43 @@ class Client():
 
     # ----------- Metrics Logging Additions ------------
     def setup_metrics_logging(self):
-        self.metrics_file = open('metrics.csv', 'w', newline='')
+        self.metrics_file = open(f'client_metrics_{os.getpid()}.csv', 'w', newline='')
         self.metrics_writer = csv.writer(self.metrics_file)
         self.metrics_writer.writerow([
-            'client_id', 'snapshot_id', 'seq_num', 'server_timestamp_ms',
-            'recv_time_ms', 'latency_ms', 'jitter_ms',
-            'perceived_position_error', 'cpu_percent', 'bandwidth_per_client_kbps'
+            'client_id', 'snapshot_id', 'seq_num',
+            'recv_time_ms', 'player_position', 'bandwidth_per_client_kbps'
         ])
-        self.metrics_last_latency = None
-        self._last_snapshot_state = None
-        self._last_snapshot_recv_time = None
-        self._direction_vectors = {
-            'UP': (0, -1),
-            'DOWN': (0, 1),
-            'LEFT': (-1, 0),
-            'RIGHT': (1, 0)
-        }
-        self._process = None
-        if psutil is not None:
-            try:
-                self._process = psutil.Process()
-                # Prime cpu_percent so that subsequent calls return deltas
-                self._process.cpu_percent(interval=None)
-            except Exception:
-                self._process = None
+        self._last_snapshot_recv_time = None   
 
-
-
-    def log_metrics(
-        self, packet,
-        perceived_position_error=0.0,
-        cpu_percent=0.0,
-        bandwidth_kbps=0.0
-    ):
+    def log_metrics(self, packet,raw_size):
         recv_time_ms = int(time.time() * 1000)
-        server_timestamp_ms = getattr(packet, "timestamp", 0)
-        latency_ms = recv_time_ms - server_timestamp_ms
-        if self.metrics_last_latency is None:
-            jitter_ms = 0
-        else:
-            jitter_ms = abs(latency_ms - self.metrics_last_latency)
-        self.metrics_last_latency = latency_ms
+        player_position = self._get_player_position(self.game_state)
+        bandwidth_kbps = self._calculate_bandwidth(raw_size)
+        
         self.metrics_writer.writerow([
             self.player_id,
             getattr(packet, "snapshot_id", 0),
             getattr(packet, "seq_num", 0),
-            server_timestamp_ms,
             recv_time_ms,
-            latency_ms,
-            jitter_ms,
-            perceived_position_error,
-            cpu_percent,
+            json.dumps(player_position) if player_position else "{}",
             bandwidth_kbps
         ])
         self.metrics_file.flush()
     # ---------------------------------------------------
 
-    def _find_player_state(self, state):
+    def _get_player_position(self, state):
+        """Extract this client's player position from game state"""
         if not isinstance(state, dict):
-            return None, None
-
+            return None
+        
         players = state.get('players') or {}
         for player in players.values():
             if player.get('username') == self.username:
                 segments = player.get('segments') or []
-                head = segments[0] if segments else None
-                direction = player.get('direction')
-                return head, direction
-        return None, None
-
-    def _calculate_perceived_position_error(self, previous_state, current_state):
-        if not previous_state or not current_state or not self.username:
-            return 0.0
-
-        prev_head, prev_direction = self._find_player_state(previous_state)
-        current_head, _ = self._find_player_state(current_state)
-
-        if not prev_head or not current_head or not prev_direction:
-            return 0.0
-
-        movement = self._direction_vectors.get(prev_direction.upper())
-        if not movement:
-            return 0.0
-
-        predicted_x = prev_head.get('x', 0) + movement[0]
-        predicted_y = prev_head.get('y', 0) + movement[1]
-        actual_x = current_head.get('x', 0)
-        actual_y = current_head.get('y', 0)
-
-        return round(math.hypot(actual_x - predicted_x, actual_y - predicted_y), 4)
-
-    def _get_cpu_percent(self):
-        if not self._process:
-            return 0.0
-
-        try:
-            return round(self._process.cpu_percent(interval=None), 2)
-        except Exception:
-            return 0.0
+                if segments:
+                    head = segments[0]
+                    return {"x": head.get('x'), "y": head.get('y')}
+        return None
 
     def _calculate_bandwidth(self, raw_size):
         now = time.time()
@@ -171,9 +106,6 @@ class Client():
         # Convert bytes per second to kilobits per second
         kbps = (raw_size * 8) / (elapsed * 1000.0)
         return round(kbps, 3)
-
-
-
 
     def log_msg(self, packet, direction=None):
         """Log all messages to CSV file"""
@@ -266,8 +198,6 @@ class Client():
             payload = json.loads(packet.payload.decode('utf-8'))
             snapshot_id = packet.snapshot_id
             server_timestamp = packet.timestamp
-            previous_state = copy.deepcopy(self._last_snapshot_state) if self._last_snapshot_state else None
-
 
             if hasattr(self, 'last_snapshot_id') and snapshot_id <= self.last_snapshot_id:
                 print(f"[Client] Ignored outdated snapshot {snapshot_id}")
@@ -282,18 +212,8 @@ class Client():
 
             self.log_msg(packet, "RECEIVED")
 
-            # LOG METRICS HERE (add real error/cpu/bw if available)
-            perceived_error = self._calculate_perceived_position_error(previous_state, payload)
-            cpu_percent = self._get_cpu_percent()
-            bandwidth_kbps = self._calculate_bandwidth(raw_size)
-            self.log_metrics(
-                packet,
-                perceived_position_error=perceived_error,
-                cpu_percent=cpu_percent,
-                bandwidth_kbps=bandwidth_kbps
-            )
-
-            self._last_snapshot_state = copy.deepcopy(payload)
+            # LOG METRICS HERE
+            self.log_metrics(packet,raw_size)
 
         except json.JSONDecodeError:
             print("[Client] Failed to decode SNAPSHOT payload (invalid JSON).")
