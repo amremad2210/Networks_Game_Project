@@ -2,17 +2,6 @@
 #change dir to project directory
 PYTHON_DIR=~/networks_project/Networks_Game_Project
 IFACE="lo"
-scenarios=("none" "loss_2" "loss_5" "delay_100")
-
-get_netem_command() {
-    case "$1" in
-        "none") echo "" ;;
-        "loss_2") echo "loss 2%" ;;
-        "loss_5") echo "loss 5%" ;;
-        "delay_100") echo "delay 100ms" ;;
-        *) echo "" ;;
-    esac
-}
 
 safe_tc_qdisc_del() {
     local iface=$1
@@ -41,12 +30,14 @@ sleep 2
 
 # Start client in automation mode
 AUTO_USERNAME="testuser" AUTOMATE=1 python3 client/start_game.py &
-CLIENT_PID=$!
+CLIENT1_PID=$!
 
+#AUTO_USERNAME="testuser2" AUTOMATE=1 python3 client/start_game.py &
+#CLIENT2_PID=$!
 # Wait for client automation duration (match automated_play duration in Python!)
 sleep 20
-
-kill $CLIENT_PID 2>/dev/null
+kill $CLIENT1_PID 2>/dev/null
+#kill $CLIENT2_PID 2>/dev/null
 kill $SERVER_PID 2>/dev/null
 kill $TCPDUMP_PID 2>/dev/null
 sleep 1
@@ -63,6 +54,5 @@ fi
 echo " Completed: $scenario"
 echo ""
 
-deactivate
 echo "All scenarios complete."
 
