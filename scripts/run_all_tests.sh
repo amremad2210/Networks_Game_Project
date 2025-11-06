@@ -3,13 +3,13 @@
 # source ~/myenv/bin/activate
 
 #for my linux machine (maybe change this path accordingly -amr)
-source .venv/bin/activate
-pip install pygame psutil
+#source .venv/bin/activate
+#pip install pygame psutil
 
 
-PYTHON_DIR="$HOME/Documents/Networks_Game_Project"
+PYTHON_DIR=~/networks_project/Networks_Game_Project #change 3la 7asab el project fen -aya
 IFACE="lo"
-scenarios=("none" "loss_2" "loss_5" "delay_100")
+scenarios=("none") # "loss_2" "loss_5" "delay_100")
 
 # 🔹 Directory to store metrics and pcap files
 RESULTS_DIR="$PYTHON_DIR/metrics_results"
@@ -63,7 +63,7 @@ for scenario in "${scenarios[@]}"; do
     sleep 2
 
     # Start client in automation mode
-    AUTO_USERNAME="testuser" AUTOMATE=1 python3 start_game.py &
+    AUTO_USERNAME="testuser" AUTOMATE=1 python3 client/start_game.py &
     CLIENT_PID=$!
 
     # Wait for client automation duration (match automated_play duration in Python!)

@@ -3,6 +3,8 @@ import threading
 import time
 import json
 import csv
+import sys
+import os
 import math
 import copy
 import importlib
@@ -11,7 +13,8 @@ from datetime import datetime
 psutil_spec = importlib.util.find_spec("psutil")
 psutil = importlib.import_module('psutil') if psutil_spec else None
 
-from packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from common.packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
 
 class Client():
     def __init__(self, server_host='127.0.0.1', server_port=9999):
@@ -228,20 +231,11 @@ class Client():
         """Send EVENT message to server"""
         if not self.connected:
             return False
-        # Map arrow key directions to server's expected keys
-        direction_map = {
-            "UP": "w",
-            "DOWN": "s",
-            "LEFT": "a",
-            "RIGHT": "d"
-        }
-
-        server_direction = direction_map.get(direction.upper(), "d")
-
+       
         move_data = {
             # server expects 'username' in current server implementation
             'username': self.username,
-            'direction': server_direction,
+            'direction': direction,
             'timestamp': int(time.time() * 1000)
         }
 
@@ -283,8 +277,8 @@ class Client():
             self.game_state = payload
             self.last_server_timestamp = server_timestamp
 
-            print(f"[Client] Updated game state from snapshot {snapshot_id} "
-                  f"({len(payload)} keys, timestamp={server_timestamp})")
+           # print(f"[Client] Updated game state from snapshot {snapshot_id} "
+            #      f"({len(payload)} keys, timestamp={server_timestamp})")
 
             self.log_msg(packet, "RECEIVED")
 
