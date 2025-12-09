@@ -9,7 +9,7 @@
 
 PYTHON_DIR=/home/amremad2210/Documents/Networks_Game_Project #change 3la 7asab el project fen -aya
 IFACE="lo"
-scenarios=("none") # "loss_2" "loss_5" "delay_100")
+scenarios=("none" "loss_2" "loss_5" "delay_100")
 
 # 🔹 Directory to store metrics and pcap files
 RESULTS_DIR="$PYTHON_DIR/metrics_results"
@@ -62,20 +62,33 @@ for scenario in "${scenarios[@]}"; do
     SERVER_PID=$!
     sleep 2
 
-    # Start client in automation mode
-    AUTO_USERNAME="testuser" AUTOMATE=1 python3 client/start_game.py &
-    CLIENT_PID=$!
+    # Start multiple clients in automation mode
+    AUTO_USERNAME="testuser1" AUTOMATE=1 python3 client/start_game.py &
+    CLIENT1_PID=$!
+    
+    AUTO_USERNAME="testuser2" AUTOMATE=1 python3 client/start_game.py &
+    CLIENT2_PID=$!
 
     # Wait for client automation duration (match automated_play duration in Python!)
     sleep 20
 
-    kill $CLIENT_PID 2>/dev/null
+    kill $CLIENT1_PID 2>/dev/null
+    kill $CLIENT2_PID 2>/dev/null
     kill $SERVER_PID 2>/dev/null
     kill $TCPDUMP_PID 2>/dev/null
     sleep 1
 
     # Remove netem rule
     safe_tc_qdisc_del "$IFACE"
+
+    # 🔹 Process collected logs and calculate metrics
+    python3 scripts/calculate_metrics.py > "$RESULTS_DIR/metrics_summary_${scenario}.txt" 2>&1
+    
+    # 🔹 Move final metrics CSV to results folder
+    if [ -f final_metrics.csv ]; then
+        mv final_metrics.csv "$RESULTS_DIR/final_metrics_${scenario}.csv"
+        echo "Saved final_metrics_${scenario}.csv to $RESULTS_DIR"
+    fi
 
     # 🔹 Move metrics CSV to the results folder
     if [ -f metrics.csv ]; then
@@ -88,6 +101,11 @@ for scenario in "${scenarios[@]}"; do
     echo " Completed: $scenario"
     echo ""
 done
+
+# 🔹 Generate comparison plots
+echo ""
+echo "Generating comparison plots..."
+python3 scripts/plot_metrics.py "$RESULTS_DIR"
 
 deactivate
 echo "All scenarios complete. Results saved in: $RESULTS_DIR"
