@@ -345,6 +345,8 @@ class Client():
 
                 print("[Client] Received END message from server. Game over.")
                 self.log_msg(packet, "RECEIVED")
+                # Stop receive loop immediately
+                self._rx_running = False
             else:
                 print(f"[Client] Received unknown packet type: {packet.msg_type}")
                 self.log_msg(packet, "RECEIVED")

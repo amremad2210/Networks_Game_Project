@@ -441,8 +441,14 @@ class GameUI:
         """
         Main game loop.
         Handles events, updates, and rendering each frame.
+        Exits if game_over is set (player died or server sent END).
         """
         while self.running:
+            # Check if player received END message (game over)
+            if self.client and self.client.game_state.get('game_over'):
+                print("[GameUI] Player is dead or game ended. Stopping game loop.")
+                break
+            
             # Handle user input
             self.handle_input()
             

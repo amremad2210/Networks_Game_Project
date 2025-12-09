@@ -184,6 +184,31 @@ class Server:
             log_message("INFO", "Server", f"{username} disconnected")
 
 
+    def send_end_message(self, username):
+        """Send END message to a dead player and remove from clients list"""
+        with self.clients_lock:
+            client = self.clients.pop(username, None)
+        
+        if not client:
+            return
+        
+        try:
+            server_timestamp = int(time.time() * 1000)
+            end_payload = json.dumps({
+                "game_over": True,
+                "winner": False,
+                "message": "You are dead!"
+            }).encode('utf-8')
+            
+            end_packet = Packet.encode_packet(
+                MSG_END, 0, 0, server_timestamp,
+                len(end_payload), end_payload
+            )
+            self.sock.sendto(end_packet, client['addr'])
+            log_message("INFO", "Server", f"Sent END message to {username}")
+        except Exception as e:
+            log_message("ERROR", "Server", f"Failed to send END to {username}: {e}")
+
     def broadcast_snapshot(self):
         """Sends the current game state to all clients"""
         with self.state_lock:
@@ -218,7 +243,14 @@ class Server:
             if self._state_interval:
                 while now - last_state_update >= self._state_interval:
                     with self.state_lock:
+                        # Get list of dead players before update
+                        players_before = set(self.state.players.keys())
                         self.state.update_state()
+                        players_after = set(self.state.players.keys())
+                        # Find newly dead players
+                        newly_dead = players_before - players_after
+                        for dead_player in newly_dead:
+                            self.send_end_message(dead_player)
                     last_state_update += self._state_interval
             else:
                 with self.state_lock:
