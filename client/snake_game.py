@@ -337,6 +337,7 @@ class GameUI:
         
         # Running flag
         self.running = True
+        client.send_ready_ack()
     
     def handle_input(self):
         """

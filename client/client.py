@@ -13,6 +13,14 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from common.packet import Packet, MSG_INIT, MSG_EVENT, MSG_SNAPSHOT, MSG_ACK, MSG_END
 
 class Client():
+    # Retry/timeouts (configurable)
+    INIT_RETRIES = 3
+    INIT_RETRY_INTERVAL = 1.0
+    
+    # Event ACK retry (configurable)
+    EVENT_ACK_TIMEOUT = 1      # seconds to wait for ACK before retrying
+    MAX_EVENT_RETRIES = 5         # max retransmit attempts per event
+
     def __init__(self, server_host='127.0.0.1', server_port=9999):
         self.server_host = server_host
         self.server_port = server_port
@@ -34,6 +42,11 @@ class Client():
             'winner': None
         }
         self.snapshot_id = 0
+
+        # Pending events: seq_num -> {packet_bytes, last_sent_time, retries, server_addr}
+        # Lightweight tracking for retry-on-timeout
+        self.pending_events = {}
+        self.pending_lock = threading.Lock()
 
         # Logging
         self.log_file = None
@@ -123,49 +136,64 @@ class Client():
             self.log_file.flush()
 
     def join_game(self, username):
-        """Send INIT message to server and wait for ACK"""
+        """Send INIT message to server and wait for INIT ACK with retries.
+
+        This method will only perform the initial handshake (INIT -> INIT ACK).
+        The client must call `send_ready_ack()` after the game UI is loaded to
+        complete the handshake and be marked READY on the server.
+        """
         self.username = username
 
         payload_data = json.dumps({'username': username}).encode('utf-8')
         payload_len = len(payload_data)
 
-        timestamp = int(time.time() * 1000)
-        packet_data = Packet.encode_packet(
-            MSG_INIT, 0, self.client_seq_num, timestamp, payload_len, payload_data
-        )
-
         server_addr = (self.server_host, self.server_port)
-        self.sock.sendto(packet_data, server_addr)
-        self.client_seq_num += 1
 
-        try:
-            data, addr = self.sock.recvfrom(4096)
-            packet = Packet.decode_packet(data)
+        for attempt in range(self.INIT_RETRIES):
+            timestamp = int(time.time() * 1000)
+            packet_data = Packet.encode_packet(
+                MSG_INIT, 0, self.client_seq_num, timestamp, payload_len, payload_data
+            )
 
-            if packet and packet.msg_type == MSG_ACK:
-                ack_data = json.loads(packet.payload.decode('utf-8'))
-                self.player_id = ack_data.get('player_id')
-                self.connected = True
+            try:
+                # send INIT
+                self.sock.sendto(packet_data, server_addr)
+                self.client_seq_num += 1
 
-                #start background receive thread
-                self.receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
-                self.receive_thread.start()
-                return True
+                # wait for INIT ACK (short timeout per attempt)
+                self.sock.settimeout(self.INIT_RETRY_INTERVAL)
+                data, addr = self.sock.recvfrom(4096)
+                packet = Packet.decode_packet(data)
 
-        except socket.timeout:
-            print("Timeout: No response from server")
-        except Exception as e:
-            print(f"Error: {e}")
+                if packet and packet.msg_type == MSG_ACK:
+                    try:
+                        ack_data = json.loads(packet.payload.decode('utf-8')) if packet.payload_len else {}
+                    except Exception:
+                        ack_data = {}
 
+                    if ack_data.get('ack_for') == 'init' or ack_data.get('player_id'):
+                        self.player_id = ack_data.get('player_id') or self.username
+                        self.server_address = addr
+                        print(f"[Client] Received INIT ACK from server: player_id={self.player_id}")
+                        # Do NOT mark connected or start receive thread yet — wait for READY ack
+                        return True
+
+            except socket.timeout:
+                print(f"[Client] INIT attempt {attempt+1} timed out, retrying...")
+                continue
+            except Exception as e:
+                print(f"[Client] Error during INIT: {e}")
+                continue
+
+        print("[Client] Failed to receive INIT ACK after retries")
         return False
 
     def make_move(self, direction):
-        """Send EVENT message to server"""
+        """Send EVENT to server and buffer for retransmit if no ACK received."""
         if not self.connected:
             return False
        
         move_data = {
-            # server expects 'username' in current server implementation
             'username': self.username,
             'direction': direction,
             'timestamp': int(time.time() * 1000)
@@ -185,8 +213,45 @@ class Client():
         event_packet = Packet(MSG_EVENT, 0, self.client_seq_num, timestamp, payload_len, payload_data)
         self.log_msg(event_packet, "SENT")
 
+        # Buffer for retry: {seq_num: {bytes, last_sent_time, retries}}
+        with self.pending_lock:
+            self.pending_events[self.client_seq_num] = {
+                "bytes": packet_data,
+                "last_sent_time": time.time(),
+                "retries": 0
+            }
+
         self.client_seq_num += 1
         return True
+
+    def send_ready_ack(self):
+        """Send READY ACK to server after UI has loaded and start receive loop."""
+        if not self.player_id:
+            print("[Client] Cannot send READY without a player_id")
+            return False
+
+        payload = json.dumps({
+            'ack_for': 'ready',
+            'player_id': self.player_id,
+            'client_time': int(time.time() * 1000)
+        }).encode('utf-8')
+
+        timestamp = int(time.time() * 1000)
+        packet_data = Packet.encode_packet(MSG_ACK, 0, 0, timestamp, len(payload), payload)
+
+        try:
+            server_addr = self.server_address or (self.server_host, self.server_port)
+            self.sock.sendto(packet_data, server_addr)
+            # Mark connected and start background receive thread
+            self.connected = True
+            if not hasattr(self, 'receive_thread') or not self.receive_thread.is_alive():
+                self.receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
+                self.receive_thread.start()
+            print(f"[Client] Sent READY ACK to server for player_id={self.player_id}")
+            return True
+        except Exception as e:
+            print(f"[Client] Failed to send READY ACK: {e}")
+            return False
 
     def handle_snapshot(self, packet, raw_size):
         """
@@ -223,7 +288,7 @@ class Client():
         pass
 
     def receive_messages(self):
-        """Background receive loop"""
+        """Background receive loop: handle snapshots, ACKs, END. Also check for stale events to retry."""
         self.sock.settimeout(0.25)
         self._rx_running = True
         print("[Client] Starting receive loop...")
@@ -232,6 +297,8 @@ class Client():
             try:
                 data, addr = self.sock.recvfrom(4096)
             except socket.timeout:
+                # On timeout, check pending events for retransmit
+                self._check_and_retry_events()
                 continue
             except OSError:
                 break
@@ -250,9 +317,19 @@ class Client():
                 self.handle_snapshot(packet, len(data))
             elif packet.msg_type == MSG_ACK:
                 try:
-                    _ = packet.payload.decode('utf-8') if packet.payload_len else ""
+                    payload_text = packet.payload.decode('utf-8') if packet.payload_len else ""
+                    info = json.loads(payload_text) if payload_text.startswith('{') else {}
                 except Exception:
-                    pass
+                    info = {}
+
+                # If this is an EVENT ACK, remove from pending
+                if info.get('ack_for') == 'event':
+                    seq_num = info.get('seq_num')
+                    with self.pending_lock:
+                        if seq_num in self.pending_events:
+                            del self.pending_events[seq_num]
+                            print(f"[Client] EVENT seq={seq_num} ACKed")
+
                 self.log_msg(packet, "RECEIVED")
             elif packet.msg_type == MSG_END:
                 try:
@@ -271,8 +348,33 @@ class Client():
             else:
                 print(f"[Client] Received unknown packet type: {packet.msg_type}")
                 self.log_msg(packet, "RECEIVED")
+
+            # Check for stale events to retry
+            self._check_and_retry_events()
+
         print("[Client] Receive loop terminated.")
-        pass
+
+    def _check_and_retry_events(self):
+        """Check pending events and retry any that have timed out."""
+        now = time.time()
+        with self.pending_lock:
+            pending_list = list(self.pending_events.items())
+
+        for seq_num, entry in pending_list:
+            elapsed = now - entry["last_sent_time"]
+            if elapsed > self.EVENT_ACK_TIMEOUT:
+                if entry["retries"] >= self.MAX_EVENT_RETRIES:
+                    # Max retries exceeded
+                    print(f"[Client] EVENT seq={seq_num} max retries exceeded")
+                    with self.pending_lock:
+                        if seq_num in self.pending_events:
+                            del self.pending_events[seq_num]
+                else:
+                    # Resend
+                    self.sock.sendto(entry["bytes"], (self.server_host, self.server_port))
+                    entry["retries"] += 1
+                    entry["last_sent_time"] = now
+                    print(f"[Client] Retry EVENT seq={seq_num} (attempt {entry['retries']})")
 
     def stop(self):
         """Gracefully stop receiving and close resources."""
@@ -294,6 +396,6 @@ class Client():
         pass
 
 if __name__ == "__main__":
-    player= Client()
+    player = Client()
     # player.join_game("Jana")
     # player.stop()
