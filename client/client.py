@@ -48,6 +48,14 @@ class Client():
         self.pending_events = {}
         self.pending_lock = threading.Lock()
 
+        # Event send times (seq_num -> send_time_ms) to compute delivery delays
+        self.event_send_times = {}
+
+        # Event logging (seq send/ack/delay)
+        self.event_log_file = None
+        self.event_csv_writer = None
+        self.setup_event_logging()
+
         # Logging
         self.log_file = None
         self.csv_writer = None
@@ -73,6 +81,19 @@ class Client():
             'recv_time_ms', 'player_position', 'bandwidth_per_client_kbps'
         ])
         self._last_snapshot_recv_time = None   
+
+    def setup_event_logging(self):
+        """Create a CSV to record event send times and ACK receipts."""
+        try:
+            pid = os.getpid()
+            self.event_log_file = open(f'client_events_{pid}.csv', 'w', newline='')
+            self.event_csv_writer = csv.writer(self.event_log_file)
+            # Columns: client_id, seq_num, send_time_ms, ack_recv_time_ms, ack_delay_ms, delivered
+            self.event_csv_writer.writerow(['client_id', 'seq_num', 'send_time_ms', 'ack_recv_time_ms', 'ack_delay_ms', 'delivered'])
+            self.event_log_file.flush()
+        except Exception:
+            self.event_log_file = None
+            self.event_csv_writer = None
 
     def log_metrics(self, packet,raw_size):
         recv_time_ms = int(time.time() * 1000)
@@ -221,6 +242,10 @@ class Client():
                 "retries": 0
             }
 
+        # Record send time for event delivery stats
+        send_time_ms = int(time.time() * 1000)
+        self.event_send_times[self.client_seq_num] = send_time_ms
+
         self.client_seq_num += 1
         return True
 
@@ -330,6 +355,31 @@ class Client():
                             del self.pending_events[seq_num]
                             print(f"[Client] EVENT seq={seq_num} ACKed")
 
+                    # Log event delivery (send_time -> ack_recv_time)
+                    try:
+                        ack_recv_time = int(time.time() * 1000)
+                        send_time = None
+                        if seq_num in self.event_send_times:
+                            send_time = self.event_send_times.pop(seq_num)
+
+                        ack_delay = None
+                        if send_time is not None:
+                            ack_delay = ack_recv_time - send_time
+
+                        if self.event_csv_writer:
+                            client_id = self.player_id or self.username or os.getpid()
+                            self.event_csv_writer.writerow([
+                                client_id,
+                                seq_num,
+                                send_time or "",
+                                ack_recv_time,
+                                ack_delay if ack_delay is not None else "",
+                                True
+                            ])
+                            self.event_log_file.flush()
+                    except Exception:
+                        pass
+
                 self.log_msg(packet, "RECEIVED")
             elif packet.msg_type == MSG_END:
                 try:
@@ -371,6 +421,24 @@ class Client():
                     with self.pending_lock:
                         if seq_num in self.pending_events:
                             del self.pending_events[seq_num]
+                    # Log failed delivery
+                    try:
+                        send_time = None
+                        if seq_num in self.event_send_times:
+                            send_time = self.event_send_times.pop(seq_num)
+                        if self.event_csv_writer:
+                            client_id = self.player_id or self.username or os.getpid()
+                            self.event_csv_writer.writerow([
+                                client_id,
+                                seq_num,
+                                send_time or "",
+                                "",
+                                "",
+                                False
+                            ])
+                            self.event_log_file.flush()
+                    except Exception:
+                        pass
                 else:
                     # Resend
                     self.sock.sendto(entry["bytes"], (self.server_host, self.server_port))
@@ -391,6 +459,11 @@ class Client():
                 self.log_file.close()
             try:
                 self.metrics_file.close()
+            except Exception:
+                pass
+            try:
+                if self.event_log_file:
+                    self.event_log_file.close()
             except Exception:
                 pass
 

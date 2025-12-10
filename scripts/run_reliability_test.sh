@@ -140,7 +140,7 @@ fi
 
 # Move client metric files (client_metrics_<pid>.csv)
 shopt -s nullglob
-CLIENT_METRICS=(client_metrics_*.csv client_metrics_*.CSV client_log_*.csv client_log_*.CSV)
+CLIENT_METRICS=(client_metrics_*.csv client_metrics_*.CSV client_events_*.csv client_events_*.CSV)
 if [ ${#CLIENT_METRICS[@]} -gt 0 ]; then
     i=1
     for f in "${CLIENT_METRICS[@]}"; do
@@ -149,7 +149,7 @@ if [ ${#CLIENT_METRICS[@]} -gt 0 ]; then
         i=$((i+1))
     done
 else
-    echo "Warning: No client metrics found matching client_metrics_*.csv or client_log_*.csv"
+    echo "Warning: No client metrics found matching client_metrics_*.csv"
 fi
 
 # Run metrics calculation (if server metrics present)
@@ -157,7 +157,7 @@ if [ -f "$RESULTS_DIR/server_metrics.csv" ]; then
     echo "Calculating metrics..."
     # Pass any client metrics in the results dir to the calculate_metrics script
     pushd "$RESULTS_DIR" >/dev/null
-    CLIENT_FILES=(client_metrics_*.csv client_log_*.csv)
+    CLIENT_FILES=(client_metrics_*.csv client_log_*.csv client_events_*.csv)
     # Filter existing files
     ARGS=()
     for cf in "${CLIENT_FILES[@]}"; do
