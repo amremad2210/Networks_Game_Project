@@ -176,12 +176,30 @@ class Server:
                 log_message("INFO", "Server", f"Duplicate EVENT from {username} seq={seq}; re-ACKed")
 
         elif packet.msg_type == MSG_END:
-            username = packet.payload.decode()
-            self.state.remove_player(username)
-            with self.clients_lock:
-                if username in self.clients:
-                    del self.clients[username]
-            log_message("INFO", "Server", f"{username} disconnected")
+            # Handle client disconnect - support both JSON and plain text
+            try:
+                payload_text = packet.payload.decode('utf-8') if packet.payload_len else ""
+                
+                # Try JSON first (new format)
+                if payload_text.strip().startswith('{'):
+                    data = json.loads(payload_text)
+                    username = data.get('username') or data.get('player_id')
+                else:
+                    # Fall back to plain text (old format)
+                    username = payload_text
+            
+            except Exception as e:
+                # Last resort: just decode
+                username = packet.payload.decode() if packet.payload else None
+                log_message("ERROR", "Server", f"Error parsing MSG_END: {e}")
+    
+            if username:
+                log_message("INFO", "Server", f"{username} sent disconnect message")
+                self.state.remove_player(username)
+                with self.clients_lock:
+                    if username in self.clients:
+                        del self.clients[username]
+                log_message("INFO", "Server", f"{username} disconnected and removed")
 
 
     def send_end_message(self, username):

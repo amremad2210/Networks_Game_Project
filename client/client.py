@@ -446,9 +446,27 @@ class Client():
                     entry["retries"] += 1
                     entry["last_sent_time"] = now
                     print(f"[Client] Retry EVENT seq={seq_num} (attempt {entry['retries']})")
+    def disconnect(self):
+        """Send END message to server before closing"""
+        if self.connected and self.player_id:
+            try:
+                payload = json.dumps({
+                    'username': self.username,
+                    'player_id': self.player_id
+                }).encode('utf-8')
+                
+                timestamp = int(time.time() * 1000)
+                packet_data = Packet.encode_packet(
+                    MSG_END, 0, 0, timestamp, len(payload), payload
+                )
+                self.sock.sendto(packet_data, (self.server_host, self.server_port))
+                print(f"[Client] Sent disconnect message for {self.username}")
+            except Exception as e:
+                print(f"[Client] Failed to send disconnect: {e}")
 
     def stop(self):
         """Gracefully stop receiving and close resources."""
+        self.disconnect()
         try:
             self._rx_running = False
         except AttributeError:
