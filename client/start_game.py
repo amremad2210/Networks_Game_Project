@@ -259,47 +259,16 @@ def automated_play(game, duration=15):
     Moves RIGHT every second.
     """
     start_time = time.time()
-    # Try to post pygame events; if video system isn't initialized (headless),
-    # fall back to calling the client's API directly (safer for automation).
     try:
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
-    except Exception:
-        # ignore if event system not ready
-        pass
-
-    while time.time() - start_time < duration:
-        try:
+        while time.time() - start_time < duration:
             pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
-        except pygame.error:
-            # Headless or video system not initialized; call client move directly.
-            try:
-                if hasattr(game, 'client') and game.client:
-                    game.client.make_move('UP')
-            except Exception:
-                pass
-        except Exception:
-            # Other exceptions from pygame.event.post - ignore and fallback
-            try:
-                if hasattr(game, 'client') and game.client:
-                    game.client.make_move('UP')
-            except Exception:
-                pass
-
-        time.sleep(1)
-
-        try:
+            time.sleep(1)
             pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pygame.K_RIGHT))
-        except pygame.error:
-            try:
-                if hasattr(game, 'client') and game.client:
-                    # No direct UP/RIGHT mapping needed for KEYUP; send a no-op or alternate move
-                    pass
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-        time.sleep(1)
+            time.sleep(1)
+    except pygame.error as e:
+        # Video system may not be initialized in headless mode, ignore
+        pass
     print("[Automated] Finished automated gameplay.")
 
 def auto_login():

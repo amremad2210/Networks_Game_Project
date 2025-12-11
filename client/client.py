@@ -74,7 +74,8 @@ class Client():
 
     # ----------- Metrics Logging Additions ------------
     def setup_metrics_logging(self):
-        self.metrics_file = open(f'client_metrics_{os.getpid()}.csv', 'w', newline='')
+        os.makedirs('logs/client_logs', exist_ok=True)
+        self.metrics_file = open(f'logs/client_logs/client_metrics_{os.getpid()}.csv', 'w', newline='')
         self.metrics_writer = csv.writer(self.metrics_file)
         self.metrics_writer.writerow([
             'client_id', 'snapshot_id', 'seq_num',

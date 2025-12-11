@@ -337,10 +337,10 @@ def main():
     if len(sys.argv) > 1:
         client_log_paths = sys.argv[1:]
     else:
-        # Auto-detect client log files
-        client_log_paths = sorted(Path('.').glob('client_metric*.csv'))
+        # Auto-detect client log files in logs/client_logs directory
+        client_log_paths = sorted(Path('logs/client_logs').glob('client_metric*.csv'))
         if not client_log_paths:
-            print("\nNo client log files found. Please specify client log file(s) as arguments.")
+            print("\nNo client log files found in logs/client_logs/. Please specify client log file(s) as arguments.")
             print("\nUsage: python calculate_metrics.py <client_metrics.csv> [client_log_2.csv] ...")
             sys.exit(1)
         client_log_paths = [str(p) for p in client_log_paths]
@@ -351,7 +351,7 @@ def main():
     
     # Load server logs
     print("\nLoading server logs...")
-    server_data = load_server_logs('server_metrics.csv')
+    server_data = load_server_logs('logs/server_logs/server_metrics.csv')
     if server_data is None:
         sys.exit(1)
     
