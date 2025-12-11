@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 from statistics import mean, median
 from collections import defaultdict
+import bisect
 
 def load_server_logs(server_log_path='server_log.csv'):
     """
@@ -142,10 +143,13 @@ def calculate_metrics(server_data, client_data_list, output_path='final_metrics.
     # Process each client
     for client_id, client_entries in clients.items():
         print(f"\nProcessing client: {client_id}")
-        
-        # Sort by snapshot_id to ensure proper jitter calculation
-        client_entries.sort(key=lambda x: x['snapshot_id'])
-        
+        # Sort by receive time to support interpolation
+        client_entries.sort(key=lambda x: x['recv_time_ms'])
+
+        # Prepare arrays for interpolation: times and positions
+        times = [e['recv_time_ms'] for e in client_entries]
+        positions = [e['player_position'] for e in client_entries]
+
         last_latency = None
         
         for client_entry in client_entries:
@@ -170,15 +174,43 @@ def calculate_metrics(server_data, client_data_list, output_path='final_metrics.
                 jitter_ms = abs(latency_ms - last_latency)
             last_latency = latency_ms
             
-            # Calculate perceived position error
-            # Server's authoritative position for this client
+            # Calculate perceived position error using interpolation to server timestamp
             server_positions = server_entry['players_pos']
             server_position = server_positions.get(client_id)
-            
-            # Client's displayed position
-            client_position = client_entry['player_position']
-            #print(f"[DEBUG] client pos= {client_position}  server_pos = {server_position}")
-            perceived_position_error = calculate_euclidean_distance(server_position, client_position)
+
+            client_interp_pos = None
+            # Interpolate client position to server timestamp (ms)
+            try:
+                t = server_timestamp_ms
+                if times:
+                    if t <= times[0]:
+                        client_interp_pos = positions[0]
+                    elif t >= times[-1]:
+                        client_interp_pos = positions[-1]
+                    else:
+                        i = bisect.bisect_right(times, t)
+                        t0 = times[i-1]
+                        t1 = times[i]
+                        p0 = positions[i-1]
+                        p1 = positions[i]
+                        if p0 and p1 and t1 != t0:
+                            # linear interpolation on x and y
+                            x0 = p0.get('x', 0)
+                            y0 = p0.get('y', 0)
+                            x1 = p1.get('x', 0)
+                            y1 = p1.get('y', 0)
+                            ratio = (t - t0) / (t1 - t0)
+                            xi = x0 + (x1 - x0) * ratio
+                            yi = y0 + (y1 - y0) * ratio
+                            client_interp_pos = {'x': xi, 'y': yi}
+                        else:
+                            client_interp_pos = p0 or p1
+                else:
+                    client_interp_pos = None
+            except Exception:
+                client_interp_pos = None
+
+            perceived_position_error = calculate_euclidean_distance(server_position, client_interp_pos)
             
             # Get other metrics
             cpu_percent = server_entry['cpu_percent']
@@ -250,6 +282,37 @@ def calculate_metrics(server_data, client_data_list, output_path='final_metrics.
     print(f"\nMean Server CPU Usage: {mean(server_cpu_usage):.4f}")
     print("\n" + "="*60)
 
+    # Event delivery statistics: look for client_events_*.csv files
+    print("\nEvent delivery statistics:")
+    event_files = list(Path('.').glob('client_events_*.csv'))
+    if event_files:
+        for ef in event_files:
+            try:
+                with open(ef, 'r', newline='') as f:
+                    r = csv.DictReader(f)
+                    total = 0
+                    delivered = 0
+                    within_200 = 0
+                    for row in r:
+                        total += 1
+                        delivered_flag = row.get('delivered', 'False')
+                        if delivered_flag.lower() in ['true', '1', 'yes']:
+                            delivered += 1
+                            try:
+                                d = row.get('ack_delay_ms')
+                                if d is not None and d != '':
+                                    if float(d) <= 200.0:
+                                        within_200 += 1
+                            except Exception:
+                                pass
+                    pct_delivered = (delivered / total * 100.0) if total else 0.0
+                    pct_within_200 = (within_200 / total * 100.0) if total else 0.0
+                    print(f"  {ef.name}: total_events={total}, delivered={delivered} ({pct_delivered:.2f}%), within_200ms={within_200} ({pct_within_200:.2f}%)")
+            except Exception as e:
+                print(f"  Failed to read {ef}: {e}")
+    else:
+        print("  No client_events_*.csv files found; event delivery stats unavailable.")
+
 def percentile(data, p):
     """Calculate the p-th percentile of data"""
     if not data:
@@ -274,10 +337,10 @@ def main():
     if len(sys.argv) > 1:
         client_log_paths = sys.argv[1:]
     else:
-        # Auto-detect client log files
-        client_log_paths = sorted(Path('.').glob('client_metric*.csv'))
+        # Auto-detect client log files in logs/client_logs directory
+        client_log_paths = sorted(Path('logs/client_logs').glob('client_metric*.csv'))
         if not client_log_paths:
-            print("\nNo client log files found. Please specify client log file(s) as arguments.")
+            print("\nNo client log files found in logs/client_logs/. Please specify client log file(s) as arguments.")
             print("\nUsage: python calculate_metrics.py <client_metrics.csv> [client_log_2.csv] ...")
             sys.exit(1)
         client_log_paths = [str(p) for p in client_log_paths]
@@ -288,7 +351,7 @@ def main():
     
     # Load server logs
     print("\nLoading server logs...")
-    server_data = load_server_logs('server_metrics.csv')
+    server_data = load_server_logs('logs/server_logs/server_metrics.csv')
     if server_data is None:
         sys.exit(1)
     

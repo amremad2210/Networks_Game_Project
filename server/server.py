@@ -29,7 +29,8 @@ class Server:
         self.sock.bind((SERVER_IP, PORT))
 
         self.state = State()
-        self.clients = {}  # username -> (ip, port)
+        # username -> { addr: (ip,port), expected_seq: int, ready: bool, last_ack_seq: int }
+        self.clients = {}
         self.snapshot_id = 0
         self.running = True
 
@@ -72,30 +73,107 @@ class Server:
             except Exception:
                 username = packet.payload.decode()
 
-            # Register player
+            # Register client record but do NOT add to game state until client sends READY ack
             with self.clients_lock:
-                self.clients[username] = addr
-            self.state.add_player(username)
-            log_message("INFO", "Server", f"{username} joined from {addr}")
+                self.clients[username] = {
+                    "addr": addr,
+                    "expected_seq": 1,
+                    "ready": False,
+                    "last_ack_seq": -1
+                }
+            log_message("INFO", "Server", f"Registered {username} from {addr} (awaiting READY)")
 
-            # --- NEW: Send ACK packet back ---
-            ack_payload = json.dumps({"player_id": username}).encode("utf-8")
+            # Send INIT ACK back with ack_for field
+            server_timestamp = int(time.time() * 1000)
+            ack_payload = json.dumps({
+                "ack_for": "init",
+                "player_id": username,
+                "server_snapshot_id": self.snapshot_id,
+                "server_time": server_timestamp
+            }).encode("utf-8")
             ack_packet = Packet.encode_packet(
                 MSG_ACK,
-                0,  # snapshot_id (unused here)
-                0,  # seq_num (unused here)
-                int(time.time() * 1000),
+                self.snapshot_id,
+                0,
+                server_timestamp,
                 len(ack_payload),
                 ack_payload
             )
             self.sock.sendto(ack_packet, addr)
-            log_message("INFO", "Server", f"Sent ACK to {username}")
+            log_message("INFO", "Server", f"Sent INIT ACK to {username}")
+
+        elif packet.msg_type == MSG_ACK:
+            # Handle ACK messages from clients (READY or event-level ACKs)
+            try:
+                payload_text = packet.payload.decode('utf-8') if packet.payload_len else ""
+                info = json.loads(payload_text) if payload_text.startswith('{') else {}
+            except Exception:
+                info = {}
+
+            ack_for = info.get('ack_for')
+            if ack_for == 'ready':
+                player_id = info.get('player_id')
+                if not player_id:
+                    return
+                with self.clients_lock:
+                    client = self.clients.get(player_id)
+                    if client:
+                        client['ready'] = True
+                        client['addr'] = addr
+                        log_message("INFO", "Server", f"{player_id} marked READY from {addr}")
+                        # Now add player to game state
+                        self.state.add_player(player_id)
+            else:
+                # Other ACK types (e.g., event ACKs) can be logged; server is authoritative so no-op
+                pass
 
         elif packet.msg_type == MSG_EVENT:
-            data = json.loads(packet.payload.decode())
+            try:
+                data = json.loads(packet.payload.decode())
+            except Exception:
+                log_message("ERROR", "Server", "Malformed EVENT payload")
+                return
+
             username = data.get("player_id") or data.get("username")
-            direction = data["direction"]
-            self.state.update_player_direction(username, direction)
+            direction = data.get("direction")
+
+            if not username:
+                log_message("WARNING", "Server", "EVENT without username")
+                return
+
+            with self.clients_lock:
+                client = self.clients.get(username)
+
+            if not client:
+                log_message("WARNING", "Server", f"Unknown client {username} sent EVENT")
+                return
+
+            if not client.get('ready'):
+                log_message("WARNING", "Server", f"Received EVENT from {username} before READY; ignoring")
+                return
+
+            seq = packet.seq_num
+            expected = client.get('expected_seq', 0)
+
+            server_timestamp = int(time.time() * 1000)
+
+            if seq == expected:
+                # Accept and process
+                self.state.update_player_direction(username, direction)
+                client['expected_seq'] = expected + 1
+                client['last_ack_seq'] = seq
+                # send ACK for this event
+                ack_payload = json.dumps({"ack_for": "event", "player_id": username, "seq_num": seq}).encode('utf-8')
+                ack_packet = Packet.encode_packet(MSG_ACK, self.snapshot_id, seq, server_timestamp, len(ack_payload), ack_payload)
+                self.sock.sendto(ack_packet, client['addr'])
+                log_message("INFO", "Server", f"Processed EVENT from {username} seq={seq}; sent ACK")
+
+            elif seq < expected:
+                # Duplicate — re-ACK
+                ack_payload = json.dumps({"ack_for": "event", "player_id": username, "seq_num": seq}).encode('utf-8')
+                ack_packet = Packet.encode_packet(MSG_ACK, self.snapshot_id, seq, server_timestamp, len(ack_payload), ack_payload)
+                self.sock.sendto(ack_packet, client['addr'])
+                log_message("INFO", "Server", f"Duplicate EVENT from {username} seq={seq}; re-ACKed")
 
         elif packet.msg_type == MSG_END:
             username = packet.payload.decode()
@@ -105,6 +183,31 @@ class Server:
                     del self.clients[username]
             log_message("INFO", "Server", f"{username} disconnected")
 
+
+    def send_end_message(self, username):
+        """Send END message to a dead player and remove from clients list"""
+        with self.clients_lock:
+            client = self.clients.pop(username, None)
+        
+        if not client:
+            return
+        
+        try:
+            server_timestamp = int(time.time() * 1000)
+            end_payload = json.dumps({
+                "game_over": True,
+                "winner": False,
+                "message": "You are dead!"
+            }).encode('utf-8')
+            
+            end_packet = Packet.encode_packet(
+                MSG_END, 0, 0, server_timestamp,
+                len(end_payload), end_payload
+            )
+            self.sock.sendto(end_packet, client['addr'])
+            log_message("INFO", "Server", f"Sent END message to {username}")
+        except Exception as e:
+            log_message("ERROR", "Server", f"Failed to send END to {username}: {e}")
 
     def broadcast_snapshot(self):
         """Sends the current game state to all clients"""
@@ -119,8 +222,9 @@ class Server:
         self.log_metrics(self.snapshot_id, 0, server_timestamp)
             
         with self.clients_lock:
-            for addr in self.clients.values():
-                self.sock.sendto(packet_bytes, addr)
+            for client in self.clients.values():
+                if client.get('ready'):
+                    self.sock.sendto(packet_bytes, client['addr'])
                 # DEBUG: Print what server is sending
                 #print("[SERVER] Sending snapshot")
                 #print(f"[Sending State] {json.dumps(json.loads(state_json), indent=2)[:500]}")  # Print first 500 chars
@@ -139,7 +243,14 @@ class Server:
             if self._state_interval:
                 while now - last_state_update >= self._state_interval:
                     with self.state_lock:
+                        # Get list of dead players before update
+                        players_before = set(self.state.players.keys())
                         self.state.update_state()
+                        players_after = set(self.state.players.keys())
+                        # Find newly dead players
+                        newly_dead = players_before - players_after
+                        for dead_player in newly_dead:
+                            self.send_end_message(dead_player)
                     last_state_update += self._state_interval
             else:
                 with self.state_lock:
@@ -179,7 +290,8 @@ class Server:
         return json.dumps(positions)
     
     def setup_metrics_logging(self):
-        self.metrics_file = open('server_metrics.csv', 'w', newline='')
+        os.makedirs('logs/server_logs', exist_ok=True)
+        self.metrics_file = open('logs/server_logs/server_metrics.csv', 'w', newline='')
         self.metrics_writer = csv.writer(self.metrics_file)
         self.metrics_writer.writerow([
             'snapshot_id', 'seq_num', 'server_timestamp_ms',

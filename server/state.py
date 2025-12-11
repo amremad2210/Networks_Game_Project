@@ -48,6 +48,7 @@ class State:
     def remove_player(self, username):
         if username in self.players:
             self.players[username].kill_player()
+            del self.players[username]
             log_message("INFO", "State", f"{username} is dead")
 
     def update_player_direction(self, username, key):
