@@ -46,7 +46,7 @@ def plot_latency_comparison(scenarios_data, output_dir='metrics_results'):
     plt.figure(figsize=(12, 6))
     
     for scenario, df in scenarios_data.items():
-        plt.plot(df['snapshot_id'], df['latency_ms'], label=scenario, alpha=0.7)
+        plt.plot(df['snapshot_id'].values, df['latency_ms'].values, label=scenario, alpha=0.7)
     
     plt.xlabel('Snapshot ID')
     plt.ylabel('Latency (ms)')
@@ -65,7 +65,7 @@ def plot_jitter_comparison(scenarios_data, output_dir='metrics_results'):
     plt.figure(figsize=(12, 6))
     
     for scenario, df in scenarios_data.items():
-        plt.plot(df['snapshot_id'], df['jitter_ms'], label=scenario, alpha=0.7)
+        plt.plot(df['snapshot_id'].values, df['jitter_ms'].values, label=scenario, alpha=0.7)
     
     plt.xlabel('Snapshot ID')
     plt.ylabel('Jitter (ms)')
@@ -84,7 +84,7 @@ def plot_position_error_comparison(scenarios_data, output_dir='metrics_results')
     plt.figure(figsize=(12, 6))
     
     for scenario, df in scenarios_data.items():
-        plt.plot(df['snapshot_id'], df['perceived_position_error'], 
+        plt.plot(df['snapshot_id'].values, df['perceived_position_error'].values, 
                 label=scenario, alpha=0.7)
     
     plt.xlabel('Snapshot ID')
@@ -106,7 +106,7 @@ def plot_cpu_usage_comparison(scenarios_data, output_dir='metrics_results'):
     for scenario, df in scenarios_data.items():
         # Group by snapshot_id and take mean (since multiple clients)
         cpu_data = df.groupby('snapshot_id')['cpu_percent'].mean()
-        plt.plot(cpu_data.index, cpu_data.values, label=scenario, alpha=0.7)
+        plt.plot(cpu_data.index.values, cpu_data.values, label=scenario, alpha=0.7)
     
     plt.xlabel('Snapshot ID')
     plt.ylabel('CPU Usage (%)')
@@ -161,6 +161,88 @@ def plot_summary_statistics(scenarios_data, output_dir='metrics_results'):
     print(f"Saved: {output_path}")
     plt.close()
 
+def plot_median_statistics(scenarios_data, output_dir='metrics_results'):
+    """Create bar chart comparing median metrics across scenarios"""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    scenarios = list(scenarios_data.keys())
+    
+    # Latency statistics
+    latency_medians = [scenarios_data[s]['latency_ms'].median() for s in scenarios]
+    axes[0, 0].bar(scenarios, latency_medians, color='steelblue')
+    axes[0, 0].set_ylabel('Median Latency (ms)')
+    axes[0, 0].set_title('Median Latency by Scenario')
+    axes[0, 0].grid(True, alpha=0.3, axis='y')
+    
+    # Jitter statistics
+    jitter_medians = [scenarios_data[s]['jitter_ms'].median() for s in scenarios]
+    axes[0, 1].bar(scenarios, jitter_medians, color='indianred')
+    axes[0, 1].set_ylabel('Median Jitter (ms)')
+    axes[0, 1].set_title('Median Jitter by Scenario')
+    axes[0, 1].grid(True, alpha=0.3, axis='y')
+    
+    # Position error statistics
+    error_medians = [scenarios_data[s]['perceived_position_error'].median() for s in scenarios]
+    axes[1, 0].bar(scenarios, error_medians, color='mediumseagreen')
+    axes[1, 0].set_ylabel('Median Position Error')
+    axes[1, 0].set_title('Median Position Error by Scenario')
+    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    
+    # CPU usage statistics
+    cpu_medians = [scenarios_data[s]['cpu_percent'].median() for s in scenarios]
+    axes[1, 1].bar(scenarios, cpu_medians, color='goldenrod')
+    axes[1, 1].set_ylabel('Median CPU Usage (%)')
+    axes[1, 1].set_title('Median CPU Usage by Scenario')
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    
+    output_path = Path(output_dir) / 'plot_median_statistics.png'
+    plt.savefig(output_path, dpi=300)
+    print(f"Saved: {output_path}")
+    plt.close()
+
+def plot_95th_percentile_statistics(scenarios_data, output_dir='metrics_results'):
+    """Create bar chart comparing 95th percentile metrics across scenarios"""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    scenarios = list(scenarios_data.keys())
+    
+    # Latency statistics
+    latency_95th = [scenarios_data[s]['latency_ms'].quantile(0.95) for s in scenarios]
+    axes[0, 0].bar(scenarios, latency_95th, color='royalblue')
+    axes[0, 0].set_ylabel('95th Percentile Latency (ms)')
+    axes[0, 0].set_title('95th Percentile Latency by Scenario')
+    axes[0, 0].grid(True, alpha=0.3, axis='y')
+    
+    # Jitter statistics
+    jitter_95th = [scenarios_data[s]['jitter_ms'].quantile(0.95) for s in scenarios]
+    axes[0, 1].bar(scenarios, jitter_95th, color='crimson')
+    axes[0, 1].set_ylabel('95th Percentile Jitter (ms)')
+    axes[0, 1].set_title('95th Percentile Jitter by Scenario')
+    axes[0, 1].grid(True, alpha=0.3, axis='y')
+    
+    # Position error statistics
+    error_95th = [scenarios_data[s]['perceived_position_error'].quantile(0.95) for s in scenarios]
+    axes[1, 0].bar(scenarios, error_95th, color='forestgreen')
+    axes[1, 0].set_ylabel('95th Percentile Position Error')
+    axes[1, 0].set_title('95th Percentile Position Error by Scenario')
+    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    
+    # CPU usage statistics
+    cpu_95th = [scenarios_data[s]['cpu_percent'].quantile(0.95) for s in scenarios]
+    axes[1, 1].bar(scenarios, cpu_95th, color='darkgoldenrod')
+    axes[1, 1].set_ylabel('95th Percentile CPU Usage (%)')
+    axes[1, 1].set_title('95th Percentile CPU Usage by Scenario')
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    
+    output_path = Path(output_dir) / 'plot_95th_percentile_statistics.png'
+    plt.savefig(output_path, dpi=300)
+    print(f"Saved: {output_path}")
+    plt.close()
+
 def main():
     """Main function to generate all plots"""
     print("="*60)
@@ -185,6 +267,8 @@ def main():
     plot_position_error_comparison(scenarios_data, results_dir)
     plot_cpu_usage_comparison(scenarios_data, results_dir)
     plot_summary_statistics(scenarios_data, results_dir)
+    plot_median_statistics(scenarios_data, results_dir)
+    plot_95th_percentile_statistics(scenarios_data, results_dir)
     
     print("\n" + "="*60)
     print("All plots generated successfully!")

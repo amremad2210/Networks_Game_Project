@@ -259,12 +259,16 @@ def automated_play(game, duration=15):
     Moves RIGHT every second.
     """
     start_time = time.time()
-    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
-    while time.time() - start_time < duration:
+    try:
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
-        time.sleep(1)
-        pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pygame.K_RIGHT))
-        time.sleep(1)
+        while time.time() - start_time < duration:
+            pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+            time.sleep(1)
+            pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pygame.K_RIGHT))
+            time.sleep(1)
+    except pygame.error as e:
+        # Video system may not be initialized in headless mode, ignore
+        pass
     print("[Automated] Finished automated gameplay.")
 
 def auto_login():

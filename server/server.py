@@ -179,7 +179,8 @@ class Server:
         return json.dumps(positions)
     
     def setup_metrics_logging(self):
-        self.metrics_file = open('server_metrics.csv', 'w', newline='')
+        os.makedirs('logs/server_logs', exist_ok=True)
+        self.metrics_file = open('logs/server_logs/server_metrics.csv', 'w', newline='')
         self.metrics_writer = csv.writer(self.metrics_file)
         self.metrics_writer.writerow([
             'snapshot_id', 'seq_num', 'server_timestamp_ms',

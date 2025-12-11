@@ -17,6 +17,13 @@ RESULTS_DIR="$PYTHON_DIR/metrics_results"
 # 🔹 Create the directory if it doesn't exist
 mkdir -p "$RESULTS_DIR"
 
+# 🔹 Initial cleanup - kill any leftover processes
+echo "Cleaning up any leftover processes..."
+sudo pkill -f "server.py" 2>/dev/null || true
+sudo pkill -f "start_game.py" 2>/dev/null || true
+sudo fuser -k 9999/tcp 2>/dev/null || true
+sleep 2
+
 get_netem_command() {
     case "$1" in
         "none") echo "" ;;
@@ -48,34 +55,53 @@ for scenario in "${scenarios[@]}"; do
 
     cd "$PYTHON_DIR" || exit 1
 
+    # Clean up logs from previous runs
+    rm -rf logs/client_logs/* logs/server_logs/*
+    mkdir -p logs/client_logs logs/server_logs
+
     # Start tcpdump
     sudo tcpdump -i lo -w "$RESULTS_DIR/pcap_${scenario}.pcap" &
     TCPDUMP_PID=$!
     sleep 2  # ensure tcpdump is ready
 
     # Kill any leftover server on port 9999
-    fuser -k 9999/tcp 2>/dev/null || true
-
+    sudo fuser -k 9999/tcp 2>/dev/null || true
+    sleep 1
 
     # Start server
     python3 server/server.py &
     SERVER_PID=$!
     sleep 2
 
-    # Start multiple clients in automation mode
+    # Start multiple clients in automation mode (4 test users)
     AUTO_USERNAME="testuser1" AUTOMATE=1 python3 client/start_game.py &
     CLIENT1_PID=$!
     
     AUTO_USERNAME="testuser2" AUTOMATE=1 python3 client/start_game.py &
     CLIENT2_PID=$!
 
-    # Wait for client automation duration (match automated_play duration in Python!)
-    sleep 20
+    AUTO_USERNAME="testuser3" AUTOMATE=1 python3 client/start_game.py &
+    CLIENT3_PID=$!
 
-    kill $CLIENT1_PID 2>/dev/null
-    kill $CLIENT2_PID 2>/dev/null
-    kill $SERVER_PID 2>/dev/null
-    kill $TCPDUMP_PID 2>/dev/null
+    AUTO_USERNAME="testuser4" AUTOMATE=1 python3 client/start_game.py &
+    CLIENT4_PID=$!
+
+    # Wait for client automation duration (match automated_play duration in Python!)
+    # Automated play runs for 5 seconds, adding 2 seconds buffer for cleanup
+    sleep 7
+
+    # Kill all processes
+    kill $CLIENT1_PID 2>/dev/null || true
+    kill $CLIENT2_PID 2>/dev/null || true
+    kill $CLIENT3_PID 2>/dev/null || true
+    kill $CLIENT4_PID 2>/dev/null || true
+    kill $SERVER_PID 2>/dev/null || true
+    sudo kill $TCPDUMP_PID 2>/dev/null || true
+    
+    # Extra cleanup to ensure everything is killed
+    sudo pkill -f "server.py" 2>/dev/null || true
+    sudo pkill -f "start_game.py" 2>/dev/null || true
+    sudo fuser -k 9999/tcp 2>/dev/null || true
     sleep 1
 
     # Remove netem rule
@@ -90,14 +116,6 @@ for scenario in "${scenarios[@]}"; do
         echo "Saved final_metrics_${scenario}.csv to $RESULTS_DIR"
     fi
 
-    # 🔹 Move metrics CSV to the results folder
-    if [ -f metrics.csv ]; then
-        mv metrics.csv "$RESULTS_DIR/metrics_${scenario}.csv"
-        echo "Saved metrics_${scenario}.csv to $RESULTS_DIR"
-    else
-        echo "Warning: metrics.csv not found for scenario $scenario"
-    fi
-
     echo " Completed: $scenario"
     echo ""
 done
@@ -107,5 +125,5 @@ echo ""
 echo "Generating comparison plots..."
 python3 scripts/plot_metrics.py "$RESULTS_DIR"
 
-deactivate
+#deactivate
 echo "All scenarios complete. Results saved in: $RESULTS_DIR"
