@@ -334,10 +334,10 @@ class GameUI:
         
         # Current player's direction (set by keyboard input)
         self.player_direction = "RIGHT"
-        
+        client.send_ready_ack()
         # Running flag
         self.running = True
-        client.send_ready_ack()
+        
     
     def handle_input(self):
         """
