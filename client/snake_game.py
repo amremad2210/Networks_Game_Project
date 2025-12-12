@@ -443,28 +443,32 @@ class GameUI:
         Handles events, updates, and rendering each frame.
         Exits if game_over is set (player died or server sent END).
         """
-        while self.running:
-            # Check if player received END message (game over)
-            if self.client and self.client.game_state.get('game_over'):
-                print("[GameUI] Player is dead or game ended. Stopping game loop.")
-                break
-            
-            # Handle user input
-            self.handle_input()
-            
-            # Update game state
-            self.update()
-            
-            # Draw everything
-            self.render()
-            
-            # Control frame rate
-            # clock.tick(FPS) sleeps as needed to maintain constant frame rate
-            self.clock.tick(FPS)
-        
-        # Cleanup
-        pygame.quit()
+        try:
+            while self.running:
+                # Check if player received END message (game over)
+                if self.client and self.client.game_state.get('game_over'):
+                    print("[GameUI] Player is dead or game ended. Stopping game loop.")
+                    break
+                
+                # Handle user input
+                self.handle_input()
+                
+                # Update game state
+                self.update()
+                
+                # Draw everything
+                self.render()
+                
+                # Control frame rate
+                self.clock.tick(FPS)
+        finally:
+            # Ensure cleanup happens even if there's an error
+            if self.client:
+                self.client.stop()
+            pygame.quit()
     
     def close(self):
-        """Stop the game loop."""
+        """Stop the game loop and disconnect client."""
         self.running = False
+        if self.client:
+            self.client.stop()
